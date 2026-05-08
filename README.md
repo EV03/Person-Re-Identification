@@ -27,8 +27,15 @@ Frames arbeiten kann, damit nicht jeder Frame mit demselben Aufwand verarbeitet 
 nach Fortschritt des Projekts können auch weitere Bausteine dazukommen, zum Beispiel
 Segmentierungsansätze, falls diese bei schwierigen Szenen einen Mehrwert bringen.
 
-_*Verwendete Technologien und Tools*_
--
+## Verwendete Technologien und Tools
+- Python
+- PyTorch
+- OpenCV (Video verarbeitung, prozessierung)
+- YOLOv8 (Person Detection)
+- ByteTrack / OC-SORT (Multi-Object Tracking)
+- OSNet / FastReID (Person Re-Identification)
+- ONNX / TensorRT (optional für Optimierung)
+- CUDA (optional GPU-Beschleunigung)
 
 
 _*Ziel*_
