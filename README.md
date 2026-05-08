@@ -1,4 +1,5 @@
-_* Worum es im Projekt geht *_
+_*Worum es im Projekt geht*_
+-
 
 In dem Projekt wollen wir ein System aufbauen, das Personen in Videosegmenten wiedererkennen kann.
 Also nicht nur in einem einzelnen Bild, sondern auch dann, wenn sich Personen durch die Szene bewegen,
@@ -12,6 +13,7 @@ einzelne Verarbeitungsschritte je nach Hardware und Modellwahl unterschiedlich s
 können.
 
 _*Wie wir das angehen wollen*_
+-
 
 Geplant ist eine modulare Pipeline, die aus mehreren Bausteinen besteht. Zuerst sollen Personen im
 Video erkannt werden. Danach sollen diese Personen über mehrere Frames hinweg verfolgt werden,
