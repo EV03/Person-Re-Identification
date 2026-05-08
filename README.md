@@ -39,3 +39,63 @@ Auswertung: Wir wollen nachvollziehbar zeigen, welche Ansätze in der Praxis gut
 Probleme auftreten und welche Kombinationen aus Qualität und Effizienz am sinnvollsten sind.
 Dabei geht es ausdrücklich um einen Proof of Concept beziehungsweise einen prototypischen Aufbau und
 nicht um ein vollständiges Produkt.
+
+System overview: 
+                ┌──────────────────────────┐
+                │      Live Kamera        │
+                │ (USB / RTSP Stream)     │
+                └──────────┬──────────────┘
+                           │
+                           ▼
+                ┌──────────────────────────┐
+                │   Frame Preprocessing    │
+                │ (Resize / Normalize)     │
+                └──────────┬──────────────┘
+                           │
+                           ▼
+                ┌──────────────────────────┐
+                │   Person Detection       │
+                │      (YOLOv8)            │
+                │ → Bounding Boxes         │
+                └──────────┬──────────────┘
+                           │
+                           ▼
+                ┌──────────────────────────┐
+                │ Multi-Object Tracking    │
+                │ (ByteTrack / OC-SORT)    │
+                │ → Track IDs (temporär)   │
+                └──────────┬──────────────┘
+                           │
+                           ▼
+                ┌──────────────────────────┐
+                │ Key-Frame Selection      │
+                │ (Quality / Sharpness /   │
+                │  Occlusion / Diversity)  │
+                └──────────┬──────────────┘
+                           │
+                           ▼
+                ┌──────────────────────────┐
+                │ Re-Identification Model  │
+                │ (OSNet / FastReID)       │
+                │ → Embeddings (vectors)   │
+                └──────────┬──────────────┘
+                           │
+                           ▼
+                ┌──────────────────────────┐
+                │ Similarity Matching      │
+                │ (Cosine Similarity)      │
+                │ → Identity Decision      │
+                └──────────┬──────────────┘
+                           │
+          ┌────────────────┴────────────────┐
+          ▼                                 ▼
+┌────────────────────┐         ┌────────────────────┐
+│ Known Person Match │         │ New Person Entry   │
+│ → Global ID        │         │ → New Embedding    │
+└────────────────────┘         └────────────────────┘
+                           │
+                           ▼
+                ┌──────────────────────────┐
+                │  Gallery / Memory DB     │
+                │ (Embeddings + IDs)       │
+                └──────────────────────────┘
