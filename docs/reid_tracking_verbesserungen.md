@@ -185,3 +185,8 @@ Optional zu ersetzen/aktualisieren:
 ```text
 Regeln und Zustand.md
 ```
+
+
+### Streamlit-Verbindungsstabilität
+
+Zusätzlich wurde `use_container_width` durch `width` ersetzt, weil neuere Streamlit-Versionen `use_container_width` nicht mehr verwenden sollen. Die Live-Preview wurde standardmäßig auf jedes 10. Frame reduziert und UI-Callback-Fehler werden abgefangen, damit eine kurzzeitig geschlossene Browser-/WebSocket-Verbindung die Videoverarbeitung nicht direkt abbricht.

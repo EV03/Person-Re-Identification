@@ -320,7 +320,7 @@ else:
     with cam_col_3:
         st.write("")
         st.write("")
-        if st.button("Refresh", use_container_width=True):
+        if st.button("Refresh", width="stretch"):
             cached_scan_local_cameras.clear()
 
     use_manual_camera_index = st.checkbox("Use manual camera index", value=False)
@@ -355,7 +355,7 @@ else:
 
         preview_col_1, preview_col_2 = st.columns([1, 3])
         with preview_col_1:
-            show_raw_preview = st.button("Test selected camera", use_container_width=True)
+            show_raw_preview = st.button("Test selected camera", width="stretch")
         with preview_col_2:
             st.caption("Dieser Test liest ein einzelnes Rohbild. Das Live-Tracking startet erst über 'Run re-identification'.")
 
@@ -372,7 +372,7 @@ with col_run:
     run_clicked = st.button(
         f"Run {selected_mode.name}",
         type="primary",
-        use_container_width=True,
+        width="stretch",
         disabled=source is None,
     )
 
@@ -404,18 +404,28 @@ if run_clicked and source is not None:
     status = status_placeholder
 
     def update_progress(current: int, total: int | None, message: str) -> None:
-        if total and total > 0:
-            progress.progress(min(current / total, 1.0))
-        status.write(message)
+        # Streamlit can briefly lose the browser/WebSocket connection during long video runs.
+        # Progress updates should not abort the actual pipeline processing.
+        try:
+            if total and total > 0:
+                progress.progress(min(current / total, 1.0))
+            status.write(message)
+        except Exception:
+            return
 
     def update_live_preview(frame_index: int, frame_bgr) -> None:
         if not show_live_preview:
             return
-        live_preview_placeholder.image(
-            bgr_to_rgb(frame_bgr),
-            caption=f"Live annotated tracking preview - frame {frame_index}",
-            width=int(preview_width),
-        )
+        # Sending too many preview frames can overload Streamlit on Windows and close the connection.
+        # Ignore UI-only preview errors so the processing run can finish.
+        try:
+            live_preview_placeholder.image(
+                bgr_to_rgb(frame_bgr),
+                caption=f"Live annotated tracking preview - frame {frame_index}",
+                width=int(preview_width),
+            )
+        except Exception:
+            return
 
     try:
         pipeline = PersonReIdPipeline(config=config, paths=paths)
@@ -454,16 +464,16 @@ st.subheader("Analysis runs")
 if runs_df.empty:
     st.info("No analysis runs stored yet.")
 else:
-    st.dataframe(runs_df, use_container_width=True)
+    st.dataframe(runs_df, width="stretch")
 
 st.subheader("Stored synthetic persons")
 if persons_df.empty:
     st.info("No persons stored yet.")
 else:
-    st.dataframe(persons_df, use_container_width=True)
+    st.dataframe(persons_df, width="stretch")
 
 st.subheader("Recent events")
 if events_df.empty:
     st.info("No events stored yet.")
 else:
-    st.dataframe(events_df, use_container_width=True)
+    st.dataframe(events_df, width="stretch")
