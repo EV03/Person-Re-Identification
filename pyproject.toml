@@ -1,0 +1,8 @@
+[project]
+name = "person-reid-mvp"
+version = "0.1.0"
+description = "Local Person Re-Identification MVP with Streamlit, YOLO tracking and SQLite vector search"
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 120

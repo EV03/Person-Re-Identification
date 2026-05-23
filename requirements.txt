@@ -1,0 +1,7 @@
+streamlit>=1.34
+ultralytics>=8.2
+opencv-python-headless>=4.9
+numpy>=1.26
+pandas>=2.2
+Pillow>=10.0
+python-dotenv>=1.0
