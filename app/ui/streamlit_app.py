@@ -159,6 +159,11 @@ def render_create_mode_form(paths: AppPaths, modes: dict[str, ModeConfig]) -> No
                     device=base_mode.device,
                     draw_debug=base_mode.draw_debug,
                     live_preview_every_n_frames=base_mode.live_preview_every_n_frames,
+                    enable_motion_analysis=base_mode.enable_motion_analysis,
+                    draw_motion_vectors=base_mode.draw_motion_vectors,
+                    motion_max_jump_fraction=base_mode.motion_max_jump_fraction,
+                    motion_smoothing_alpha=base_mode.motion_smoothing_alpha,
+                    motion_min_displacement_px=base_mode.motion_min_displacement_px,
                     enable_ball_tracking=bool(enable_ball_tracking),
                     enable_pitch_mapping=bool(enable_pitch_mapping),
                     enable_team_classification=bool(enable_team_classification),
@@ -274,6 +279,38 @@ with st.sidebar:
         index=option_index([320, 480, 640, 960, 1280], selected_mode.image_size, fallback=2),
     )
     device = st.selectbox("Device", ["auto", "cpu", "cuda"], index=option_index(["auto", "cpu", "cuda"], selected_mode.device))
+
+    st.divider()
+    st.header("Motion Analysis")
+    enable_motion_analysis = st.checkbox(
+        "Enable movement direction analysis",
+        value=bool(selected_mode.enable_motion_analysis),
+        help="Berechnet pro Track Bewegungsrichtung, Geschwindigkeit und Sprung-Plausibilität im Bildraum.",
+    )
+    draw_motion_vectors = st.checkbox(
+        "Draw movement arrows",
+        value=bool(selected_mode.draw_motion_vectors),
+        disabled=not enable_motion_analysis,
+        help="Zeichnet Richtungspfeile im Live-/Output-Bild. Rote Boxen markieren große Sprünge.",
+    )
+    motion_max_jump_fraction = st.slider(
+        "Max jump fraction",
+        min_value=0.05,
+        max_value=0.80,
+        value=float(selected_mode.motion_max_jump_fraction),
+        step=0.05,
+        disabled=not enable_motion_analysis,
+        help="Maximal tolerierte Track-Verschiebung relativ zur Bilddiagonale. Größere Sprünge werden als auffällig markiert.",
+    )
+    motion_smoothing_alpha = st.slider(
+        "Motion smoothing",
+        min_value=0.00,
+        max_value=1.00,
+        value=float(selected_mode.motion_smoothing_alpha),
+        step=0.05,
+        disabled=not enable_motion_analysis,
+        help="Glättung der Richtungspfeile. Höher = reagiert schneller, niedriger = ruhiger.",
+    )
 
     st.divider()
     st.header("Live Display")
@@ -398,6 +435,10 @@ if run_clicked and source is not None:
         max_frames=int(max_frames),
         device=device,
         live_preview_every_n_frames=int(preview_every_n_frames),
+        enable_motion_analysis=bool(enable_motion_analysis),
+        draw_motion_vectors=bool(draw_motion_vectors),
+        motion_max_jump_fraction=float(motion_max_jump_fraction),
+        motion_smoothing_alpha=float(motion_smoothing_alpha),
     )
 
     progress = st.progress(0)

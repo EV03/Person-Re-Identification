@@ -627,3 +627,42 @@ Regeln und Zustand.md
 ### Streamlit-Verbindungsstabilität
 
 Zusätzlich wurde `use_container_width` durch `width` ersetzt, weil neuere Streamlit-Versionen `use_container_width` nicht mehr verwenden sollen. Die Live-Preview wurde standardmäßig auf jedes 10. Frame reduziert und UI-Callback-Fehler werden abgefangen, damit eine kurzzeitig geschlossene Browser-/WebSocket-Verbindung die Videoverarbeitung nicht direkt abbricht.
+
+---
+
+## 11. Änderungsbericht – Bewegungsrichtung / Motion Analysis
+
+### Ziel der Änderung
+
+Die bestehende ReID-Pipeline wurde um eine leichte Bewegungsanalyse pro Track erweitert. Ziel ist es, Bewegungsrichtung, Geschwindigkeit und auffällige Track-Sprünge sichtbar und messbar zu machen, ohne die aktuell funktionierende ReID-Entscheidung direkt zu destabilisieren.
+
+### Was wurde geändert?
+
+- Neue Datei `app/utils/motion_utils.py` erstellt.
+- Pro `track_id` werden jetzt Mittelpunkt, Bewegungsvektor, Richtung, Geschwindigkeit und Plausibilität berechnet.
+- Bewegungsdaten werden im Event-Payload gespeichert.
+- Die Event-Tabelle zeigt zusätzliche Motion-Spalten an.
+- Im Live-/Output-Bild können Richtungspfeile gezeichnet werden.
+- Auffällige große Sprünge werden farblich markiert und als Warnung im Run ausgegeben.
+- Streamlit enthält neue Einstellungen für Motion Analysis.
+
+### Technische Entscheidung
+
+Motion wird aktuell als Debug- und Plausibilitätssignal verwendet, aber noch nicht als harte Match-Regel. Dadurch bleibt die bestehende ReID-Logik stabil. Nach Benchmark-Tests kann entschieden werden, ob Motion später schwache Matches zusätzlich bestätigen oder ablehnen soll.
+
+### Betroffene Dateien
+
+- `app/config.py`
+- `app/modes/base_mode.py`
+- `app/modes/default_mode.py`
+- `app/modes/football_mode.py`
+- `app/pipeline/orchestrator.py`
+- `app/storage/vector_store.py`
+- `app/ui/streamlit_app.py`
+- `app/utils/image_utils.py`
+- `app/utils/motion_utils.py`
+- `docs/reid_tracking_verbesserungen.md`
+
+### Neuer Stand
+
+Die Pipeline kann jetzt neben Detection, Tracking, Quality-Gate und ReID auch Bewegungsrichtung pro Track erfassen und anzeigen. Für spätere Football-Analyse ist damit die Grundlage für Laufwege, Richtungswechsel und einfache Bewegungsstatistiken vorbereitet.

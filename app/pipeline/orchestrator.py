@@ -14,6 +14,7 @@ from app.storage.models import PipelineResult
 from app.storage.vector_store import SQLiteVectorStore
 from app.utils.camera_utils import CameraSource, open_camera_capture
 from app.utils.id_utils import make_run_id, safe_source_name
+from app.utils.motion_utils import MotionSnapshot, MotionTracker
 from app.utils.image_utils import (
     crop_quality_score,
     crop_xyxy,
@@ -98,9 +99,10 @@ class PersonReIdPipeline:
         candidate: TrackEmbeddingCandidate,
         good_frame_count: int,
         quality_average: float | None = None,
+        motion: MotionSnapshot | None = None,
     ) -> dict[str, object]:
         quality_average = candidate.quality_score if quality_average is None else quality_average
-        return {
+        payload: dict[str, object] = {
             "run_id": run_id,
             "mode_id": self.config.mode_id,
             "pipeline_type": self.config.pipeline_type,
@@ -113,6 +115,13 @@ class PersonReIdPipeline:
             "snapshot_quality": float(candidate.quality_score),
             "quality_details": {key: float(value) for key, value in candidate.quality_details.items()},
         }
+        if motion is not None:
+            payload["motion"] = motion.to_payload()
+            payload["motion_direction"] = motion.direction_label
+            payload["motion_speed_px_per_sec"] = float(motion.speed_px_per_sec)
+            payload["motion_plausibility_score"] = float(motion.plausibility_score)
+            payload["motion_is_large_jump"] = bool(motion.is_large_jump)
+        return payload
 
     def process(
         self,
@@ -170,6 +179,11 @@ class PersonReIdPipeline:
                 "min_good_frames_before_reid": self.config.min_good_frames_before_reid,
                 "min_embedding_quality": self.config.min_embedding_quality,
                 "min_update_quality": self.config.min_update_quality,
+                "enable_motion_analysis": self.config.enable_motion_analysis,
+                "draw_motion_vectors": self.config.draw_motion_vectors,
+                "motion_max_jump_fraction": self.config.motion_max_jump_fraction,
+                "motion_smoothing_alpha": self.config.motion_smoothing_alpha,
+                "motion_min_displacement_px": self.config.motion_min_displacement_px,
                 "enable_ball_tracking": self.config.enable_ball_tracking,
                 "enable_pitch_mapping": self.config.enable_pitch_mapping,
                 "enable_team_classification": self.config.enable_team_classification,
@@ -180,11 +194,20 @@ class PersonReIdPipeline:
         track_to_person: dict[int, str] = {}
         track_to_last_score: dict[int, float | None] = {}
         track_candidates: dict[int, list[TrackEmbeddingCandidate]] = {}
+        motion_tracker = MotionTracker(
+            fps=float(fps),
+            frame_width=width,
+            frame_height=height,
+            max_jump_fraction=self.config.motion_max_jump_fraction,
+            smoothing_alpha=self.config.motion_smoothing_alpha,
+            min_displacement_px=self.config.motion_min_displacement_px,
+        )
         created_persons = 0
         matched_events = 0
         frame_index = 0
         skipped_low_quality = 0
         waiting_for_good_frames = 0
+        large_motion_jumps = 0
         warnings: list[str] = []
         mode_warning = self._mode_warning()
         if mode_warning:
@@ -205,6 +228,13 @@ class PersonReIdPipeline:
             for detection in detections:
                 person_id = track_to_person.get(detection.track_id)
                 score = track_to_last_score.get(detection.track_id)
+                motion = motion_tracker.update(
+                    track_id=detection.track_id,
+                    bbox_xyxy=detection.bbox_xyxy,
+                    frame_index=frame_index,
+                ) if self.config.enable_motion_analysis else None
+                if motion is not None and motion.is_large_jump:
+                    large_motion_jumps += 1
                 should_reid = person_id is None or frame_index % max(1, self.config.reid_every_n_frames) == 0
 
                 if should_reid:
@@ -212,7 +242,14 @@ class PersonReIdPipeline:
                     if not is_valid_crop(crop, self.config.min_crop_width, self.config.min_crop_height):
                         skipped_low_quality += 1
                         if self.config.draw_debug:
-                            draw_detection(frame, detection, person_id, score)
+                            draw_detection(
+                                frame,
+                                detection,
+                                person_id,
+                                score,
+                                motion=motion,
+                                draw_motion=self.config.draw_motion_vectors,
+                            )
                         continue
 
                     quality_score, quality_details = crop_quality_score(
@@ -226,7 +263,14 @@ class PersonReIdPipeline:
                     if quality_score < self.config.min_embedding_quality:
                         skipped_low_quality += 1
                         if self.config.draw_debug:
-                            draw_detection(frame, detection, person_id, score)
+                            draw_detection(
+                                frame,
+                                detection,
+                                person_id,
+                                score,
+                                motion=motion,
+                                draw_motion=self.config.draw_motion_vectors,
+                            )
                         continue
 
                     embedding = self.encoder.encode(crop)
@@ -250,7 +294,14 @@ class PersonReIdPipeline:
                         if len(candidates) < self.config.min_good_frames_before_reid:
                             waiting_for_good_frames += 1
                             if self.config.draw_debug:
-                                draw_detection(frame, detection, person_id, score)
+                                draw_detection(
+                                frame,
+                                detection,
+                                person_id,
+                                score,
+                                motion=motion,
+                                draw_motion=self.config.draw_motion_vectors,
+                            )
                             continue
 
                         combined_embedding = self._combined_embedding(candidates)
@@ -292,6 +343,7 @@ class PersonReIdPipeline:
                                 candidate=best_candidate,
                                 good_frame_count=len(candidates),
                                 quality_average=quality_average,
+                                motion=motion,
                             ),
                         )
 
@@ -315,6 +367,7 @@ class PersonReIdPipeline:
                                 event_type="quality_gated_update",
                                 candidate=candidate,
                                 good_frame_count=1,
+                                motion=motion,
                             ),
                         )
                     else:
@@ -324,7 +377,14 @@ class PersonReIdPipeline:
                     used_person_ids_this_frame.add(person_id)
 
                 if self.config.draw_debug:
-                    draw_detection(frame, detection, person_id, score)
+                    draw_detection(
+                                frame,
+                                detection,
+                                person_id,
+                                score,
+                                motion=motion,
+                                draw_motion=self.config.draw_motion_vectors,
+                            )
 
             writer.write(frame)
 
@@ -354,6 +414,11 @@ class PersonReIdPipeline:
         if waiting_for_good_frames > 0:
             warnings.append(
                 "Some tracks were not assigned immediately because the pipeline waited for enough good frames."
+            )
+        if large_motion_jumps > 0:
+            warnings.append(
+                f"Motion analysis detected {large_motion_jumps} large track jumps. "
+                "Check these scenes for ID switches or camera cuts."
             )
 
         persons = self.store.list_persons()

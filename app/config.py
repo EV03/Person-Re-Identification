@@ -63,6 +63,11 @@ class PipelineConfig:
     device: str = "auto"
     draw_debug: bool = True
     live_preview_every_n_frames: int = 10
+    enable_motion_analysis: bool = True
+    draw_motion_vectors: bool = True
+    motion_max_jump_fraction: float = 0.20
+    motion_smoothing_alpha: float = 0.35
+    motion_min_displacement_px: float = 2.0
 
     enable_ball_tracking: bool = False
     enable_pitch_mapping: bool = False

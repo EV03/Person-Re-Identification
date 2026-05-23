@@ -25,4 +25,9 @@ def build_default_mode() -> ModeConfig:
         min_update_quality=0.65,
         max_frames=500,
         device="auto",
+        enable_motion_analysis=True,
+        draw_motion_vectors=True,
+        motion_max_jump_fraction=0.20,
+        motion_smoothing_alpha=0.35,
+        motion_min_displacement_px=2.0,
     )
