@@ -149,6 +149,9 @@ def render_create_mode_form(paths: AppPaths, modes: dict[str, ModeConfig]) -> No
                     detection_confidence=float(custom_detection_conf),
                     image_size=base_mode.image_size,
                     reid_every_n_frames=base_mode.reid_every_n_frames,
+                    min_good_frames_before_reid=base_mode.min_good_frames_before_reid,
+                    min_embedding_quality=base_mode.min_embedding_quality,
+                    min_update_quality=base_mode.min_update_quality,
                     max_frames=int(custom_max_frames),
                     min_crop_height=base_mode.min_crop_height,
                     min_crop_width=base_mode.min_crop_width,
@@ -233,6 +236,30 @@ with st.sidebar:
         max_value=100,
         value=int(selected_mode.reid_every_n_frames),
         step=1,
+    )
+    min_good_frames_before_reid = st.number_input(
+        "Min good frames before first ReID match",
+        min_value=1,
+        max_value=20,
+        value=int(selected_mode.min_good_frames_before_reid),
+        step=1,
+        help="Neue Tracks werden erst gespeichert oder gematcht, wenn genug hochwertige Crops gesammelt wurden.",
+    )
+    min_embedding_quality = st.slider(
+        "Min crop quality for ReID candidates",
+        min_value=0.00,
+        max_value=1.00,
+        value=float(selected_mode.min_embedding_quality),
+        step=0.05,
+        help="Crops unter diesem Qualitätswert werden nicht encodiert und nicht als neue ReID-Kandidaten genutzt.",
+    )
+    min_update_quality = st.slider(
+        "Min crop quality for person embedding updates",
+        min_value=0.00,
+        max_value=1.00,
+        value=float(selected_mode.min_update_quality),
+        step=0.05,
+        help="Bestehende Personen-Embeddings werden nur mit Crops ab diesem Qualitätswert aktualisiert.",
     )
     max_frames = st.number_input(
         "Max frames",
@@ -365,6 +392,9 @@ if run_clicked and source is not None:
         detection_confidence=float(detection_confidence),
         image_size=int(image_size),
         reid_every_n_frames=int(reid_every_n_frames),
+        min_good_frames_before_reid=int(min_good_frames_before_reid),
+        min_embedding_quality=float(min_embedding_quality),
+        min_update_quality=float(min_update_quality),
         max_frames=int(max_frames),
         device=device,
         live_preview_every_n_frames=int(preview_every_n_frames),
