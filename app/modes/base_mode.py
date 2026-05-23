@@ -36,7 +36,7 @@ class ModeConfig:
     crop_padding: float = 0.05
     device: str = "auto"
     draw_debug: bool = True
-    live_preview_every_n_frames: int = 2
+    live_preview_every_n_frames: int = 10
 
     enable_ball_tracking: bool = False
     enable_pitch_mapping: bool = False
