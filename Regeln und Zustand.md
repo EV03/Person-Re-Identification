@@ -551,147 +551,74 @@ Ab jetzt wird bei weiteren Änderungen aktiv ein Änderungsbericht mitgeführt. 
 
 ---
 
-## 11. Neue Änderung – Mode-System und Football-Analysemodus
+## 11. Änderungsbericht – Embedding-Qualität und stabilere ReID
 
-### 11.1 Ziel der Änderung
+### Anlass
 
-Der bisherige lauffähige MVP wird als eigener Modus mit dem Namen `default` geführt.
-Zusätzlich wurde ein weiterer auswählbarer Modus für die langfristige Fußballanalyse vorbereitet:
+Nach Anpassung mehrerer Parameter hat sich das Ergebnis bereits verbessert. Ein Upgrade auf ein stärkeres YOLO-Modell oder einen anderen Tracking-Algorithmus wird aktuell bewusst zurückgestellt. Stattdessen wird zuerst die vorhandene Pipeline robuster gemacht, damit weniger schlechte Bilder/Crops gespeichert werden.
 
-```text
-football_team_analysis
-```
+### Aktuelle Entscheidung
 
-Langfristiges Ziel dieses Modus ist die Verarbeitung von Videoeingaben, um Spieler einer Fußballmannschaft zu erkennen, zu tracken und daraus Statistiken abzuleiten.
-
----
-
-### 11.2 Umgesetzte Änderungen
-
-Es wurde ein neues Mode-System eingeführt:
+Die ReID-Frequenz wurde reduziert:
 
 ```text
-app/modes/
-├── base_mode.py
-├── default_mode.py
-├── football_mode.py
-└── mode_registry.py
+reid_every_n_frames = 5
 ```
 
-Der aktuelle Projektstand ist jetzt als `default` registriert.
+Zusätzlich soll die Pipeline Embeddings nicht sofort beim ersten Auftauchen einer Track-ID speichern, sondern erst nach einer Mindestanzahl guter Frames.
 
-Der neue Fußballmodus ist als `football_team_analysis` registriert und über das Streamlit-UI auswählbar.
+### Umgesetzte Änderung
 
-Zusätzlich können im UI eigene Custom Modes erstellt und gespeichert werden. Diese werden lokal gespeichert unter:
+Neue Logik:
 
 ```text
-data/modes/custom_modes.json
+Track erkannt
+→ Crop erstellen
+→ Crop-Qualität prüfen
+→ gute Crops pro Track sammeln
+→ erst nach genügend guten Frames matchen oder neue Person erstellen
+→ bestehende Personen-Embeddings nur mit guten Crops aktualisieren
 ```
 
----
-
-### 11.3 UI-Änderungen
-
-In `app/ui/streamlit_app.py` wurde ergänzt:
-
-- Modusauswahl in der Sidebar,
-- Anzeige der Modusbeschreibung,
-- Formular zum Erstellen eigener Custom Modes,
-- modeabhängige Default-Werte für YOLO, Tracker, Encoder, Threshold und Max Frames,
-- Anzeige von Analyse-Läufen,
-- Ausgabe des aktuell verwendeten Modus im Run Summary.
-
----
-
-### 11.4 Pipeline-Änderungen
-
-In `app/pipeline/orchestrator.py` wurde ergänzt:
-
-- `mode_id`, `mode_name` und `pipeline_type` werden verarbeitet,
-- Output-Videos enthalten den Modus im Dateinamen,
-- Analyse-Läufe werden in SQLite dokumentiert,
-- Events speichern die Mode-Information im Payload,
-- Football Mode gibt aktuell einen Warnhinweis aus, dass die Fußballmodule vorbereitet, aber noch nicht vollständig verdrahtet sind.
-
----
-
-### 11.5 Datenbank-Erweiterung
-
-In `app/storage/vector_store.py` wurden neue Tabellen vorbereitet:
+Neue Standardparameter:
 
 ```text
-analysis_runs
-teams
-players
-player_frame_events
-ball_frame_events
-player_stats
+min_good_frames_before_reid = 3
+min_embedding_quality = 0.55
+min_update_quality = 0.65
 ```
 
-Damit ist die Grundlage für spätere Fußballstatistiken vorhanden.
+### Warum das wichtig ist
 
-Außerdem wurde der Schutz gegen inkompatible Embedding-Dimensionen ergänzt:
+Schlechte Crops können die ReID-Datenbank verschlechtern. Besonders kritisch ist das Aktualisieren bestehender Personen-Embeddings, weil unscharfe, zu dunkle, zu kleine oder abgeschnittene Crops in den Mittelwert einer Person eingehen können. Dadurch wird die gespeicherte Person später schlechter wiedererkannt oder fälschlich mit anderen Personen verwechselt.
+
+Deshalb werden Embeddings ab jetzt nur noch dann erstellt/gespeichert, wenn die Crop-Qualität ausreichend ist. Außerdem werden Updates am Personen-Embedding qualitätsgewichtet durchgeführt.
+
+### Spätere, aktuell zurückgestellte Verbesserungsmöglichkeiten
+
+Diese Möglichkeiten bleiben dokumentiert, werden aber derzeit nicht umgesetzt:
+
+- stärkeres YOLO-Modell testen, z. B. `yolov8s.pt` oder `yolov8m.pt`,
+- Tracking-Algorithmus wechseln oder anpassen, z. B. `ByteTrack` → `BoT-SORT`,
+- eigenes Tracker-YAML erstellen,
+- höhere Bildgröße testen, z. B. `960` oder `1280`,
+- Bewegungsrichtung und Track-Plausibilität ergänzen,
+- Segmentierung statt reiner Bounding Box nutzen,
+- Körperteile getrennt analysieren, z. B. Gesamtperson, Oberkörper, Unterkörper,
+- Pose-/Keypoint-Analyse ergänzen,
+- Gesichtserkennung nur optional und mit besonderer Datenschutzprüfung.
+
+### Betroffene Dateien
 
 ```text
-stored=(32,), query=(512,) → skip
+app/config.py
+app/modes/base_mode.py
+app/modes/default_mode.py
+app/modes/football_mode.py
+app/pipeline/orchestrator.py
+app/storage/vector_store.py
+app/ui/streamlit_app.py
+app/utils/image_utils.py
+docs/reid_tracking_verbesserungen.md
+Regeln und Zustand.md
 ```
-
-Dadurch stürzt die Suche nicht mehr ab, wenn alte ColorHistogram-Daten und neue OSNet-Daten gemischt vorliegen.
-
----
-
-### 11.6 Football-Module vorbereitet
-
-Es wurden vorbereitende Module ergänzt:
-
-```text
-app/pipeline/football/
-├── ball_detector.py
-├── football_orchestrator.py
-├── pitch_mapper.py
-├── stats_aggregator.py
-└── team_classifier.py
-```
-
-Aktueller Stand:
-
-| Modul | Status |
-|---|---|
-| Ball Detector | Platzhalter |
-| Team Classifier | einfache Farblogik vorbereitet |
-| Pitch Mapper | Homography-Grundlage vorbereitet |
-| Stats Aggregator | Distanz, Geschwindigkeit, Sprint-Logik vorbereitet |
-| Football Orchestrator | Erweiterungspunkt vorbereitet |
-
----
-
-### 11.7 Neue Arbeitsregel
-
-Bei neuen fachlichen Analysemodi wird zuerst ein eigener Modus mit stabiler Default-Pipeline erstellt. Erst danach werden neue Fachmodule schrittweise verdrahtet.
-
-Begründung:
-
-```text
-bestehender MVP bleibt stabil
-neuer Modus kann iterativ erweitert werden
-Fehler bleiben besser isolierbar
-```
-
----
-
-### 11.8 Neuer aktueller Stand
-
-Aktuell existieren zwei Built-in-Modes:
-
-| Mode ID | Name | Status |
-|---|---|---|
-| `default` | Default ReID MVP | produktiver aktueller MVP-Stand |
-| `football_team_analysis` | Football Team Analysis | auswählbare Hülle mit vorbereiteten Football-Modulen |
-
-Der Football Mode nutzt in V1 noch die bestehende ReID-Pipeline. Die nächsten sinnvollen Schritte sind:
-
-1. Team-Farbklassifikation in die Crop-Verarbeitung einbauen.
-2. Ball-Erkennung mit eigenem Modell oder Roboflow-Dataset ergänzen.
-3. Pitch-Mapping per Homography aktivieren.
-4. Spielerpositionen in Meterkoordinaten speichern.
-5. Statistiken aus den gespeicherten Positionsdaten berechnen.

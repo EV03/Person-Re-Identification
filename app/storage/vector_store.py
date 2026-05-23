@@ -15,9 +15,10 @@ from app.utils.image_utils import cosine_similarity, normalize_vector
 class SQLiteVectorStore:
     """Small local vector store backed by SQLite.
 
-    It stores one mean embedding per synthetic person ID and event rows for
-    observations. Similarity search is computed in Python using cosine similarity.
-    For a small MVP this keeps setup minimal and avoids a separate vector DB server.
+    It stores one quality-gated mean embedding per synthetic person ID and event
+    rows for observations. Similarity search is computed in Python using cosine
+    similarity. For a small MVP this keeps setup minimal and avoids a separate
+    vector DB server.
     """
 
     def __init__(self, db_path: Path) -> None:
@@ -30,6 +31,13 @@ class SQLiteVectorStore:
         conn.row_factory = sqlite3.Row
         return conn
 
+    @staticmethod
+    def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, definition: str) -> None:
+        columns = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        if any(str(column["name"]) == column_name for column in columns):
+            return
+        conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+
     def _init_db(self) -> None:
         with self._connect() as conn:
             conn.execute(
@@ -38,12 +46,17 @@ class SQLiteVectorStore:
                     person_id TEXT PRIMARY KEY,
                     mean_embedding TEXT NOT NULL,
                     observations INTEGER NOT NULL DEFAULT 0,
+                    embedding_weight_sum REAL NOT NULL DEFAULT 1.0,
                     created_at TEXT NOT NULL,
                     last_seen TEXT NOT NULL,
-                    best_snapshot_path TEXT
+                    best_snapshot_path TEXT,
+                    best_snapshot_quality REAL NOT NULL DEFAULT 0.0
                 )
                 """
             )
+            self._ensure_column(conn, "persons", "embedding_weight_sum", "REAL NOT NULL DEFAULT 1.0")
+            self._ensure_column(conn, "persons", "best_snapshot_quality", "REAL NOT NULL DEFAULT 0.0")
+
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS events (
@@ -188,6 +201,27 @@ class SQLiteVectorStore:
     def _json_to_vector(value: str) -> np.ndarray:
         return np.asarray(json.loads(value), dtype=np.float32)
 
+    @staticmethod
+    def _embedding_weight_from_payload(payload: Payload | None) -> float:
+        if not payload:
+            return 1.0
+        raw_weight = payload.get("embedding_weight", payload.get("quality_score", 1.0))
+        try:
+            weight = float(raw_weight)
+        except (TypeError, ValueError):
+            return 1.0
+        return float(np.clip(weight, 0.05, 1.0))
+
+    @staticmethod
+    def _snapshot_quality_from_payload(payload: Payload | None) -> float:
+        if not payload:
+            return 0.0
+        raw_quality = payload.get("snapshot_quality", payload.get("quality_score", 0.0))
+        try:
+            return float(np.clip(float(raw_quality), 0.0, 1.0))
+        except (TypeError, ValueError):
+            return 0.0
+
     def count_persons(self) -> int:
         with self._connect() as conn:
             row = conn.execute("SELECT COUNT(*) AS count FROM persons").fetchone()
@@ -277,43 +311,82 @@ class SQLiteVectorStore:
         payload: Payload | None = None,
     ) -> None:
         now = utc_now_iso()
+        payload = payload or {}
         embedding = normalize_vector(embedding)
         bbox_json = json.dumps(list(bbox_xyxy))
-        payload_json = json.dumps(payload or {}, ensure_ascii=False)
+        payload_json = json.dumps(payload, ensure_ascii=False)
+        embedding_weight = self._embedding_weight_from_payload(payload)
+        snapshot_quality = self._snapshot_quality_from_payload(payload)
 
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT mean_embedding, observations, best_snapshot_path FROM persons WHERE person_id = ?",
+                """
+                SELECT mean_embedding, observations, embedding_weight_sum, best_snapshot_path, best_snapshot_quality
+                FROM persons
+                WHERE person_id = ?
+                """,
                 (person_id,),
             ).fetchone()
 
             if row is None:
                 conn.execute(
                     """
-                    INSERT INTO persons (person_id, mean_embedding, observations, created_at, last_seen, best_snapshot_path)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO persons (
+                        person_id, mean_embedding, observations, embedding_weight_sum,
+                        created_at, last_seen, best_snapshot_path, best_snapshot_quality
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (person_id, self._vector_to_json(embedding), 1, now, now, snapshot_path),
+                    (
+                        person_id,
+                        self._vector_to_json(embedding),
+                        1,
+                        embedding_weight,
+                        now,
+                        now,
+                        snapshot_path,
+                        snapshot_quality,
+                    ),
                 )
             else:
                 old_embedding = self._json_to_vector(row["mean_embedding"])
                 old_observations = int(row["observations"])
+                old_weight_sum = float(row["embedding_weight_sum"] or max(old_observations, 1))
                 new_observations = old_observations + 1
+                new_weight_sum = old_weight_sum + embedding_weight
+
                 if old_embedding.shape == embedding.shape:
-                    mean_embedding = normalize_vector((old_embedding * old_observations + embedding) / new_observations)
+                    mean_embedding = normalize_vector(
+                        (old_embedding * old_weight_sum + embedding * embedding_weight) / new_weight_sum
+                    )
                 else:
                     # Encoder changed. Replace the incompatible mean vector with
                     # the current vector and continue without breaking the run.
                     mean_embedding = embedding
+                    new_weight_sum = embedding_weight
+
                 best_snapshot_path = row["best_snapshot_path"] or snapshot_path
+                best_snapshot_quality = float(row["best_snapshot_quality"] or 0.0)
+                if snapshot_path and snapshot_quality >= best_snapshot_quality:
+                    best_snapshot_path = snapshot_path
+                    best_snapshot_quality = snapshot_quality
 
                 conn.execute(
                     """
                     UPDATE persons
-                    SET mean_embedding = ?, observations = ?, last_seen = ?, best_snapshot_path = ?
+                    SET mean_embedding = ?, observations = ?, embedding_weight_sum = ?,
+                        last_seen = ?, best_snapshot_path = ?, best_snapshot_quality = ?
                     WHERE person_id = ?
                     """,
-                    (self._vector_to_json(mean_embedding), new_observations, now, best_snapshot_path, person_id),
+                    (
+                        self._vector_to_json(mean_embedding),
+                        new_observations,
+                        new_weight_sum,
+                        now,
+                        best_snapshot_path,
+                        best_snapshot_quality,
+                        person_id,
+                    ),
                 )
 
             conn.execute(

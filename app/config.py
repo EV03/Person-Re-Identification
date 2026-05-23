@@ -52,7 +52,10 @@ class PipelineConfig:
     match_threshold: float = float(os.getenv("REID_DEFAULT_THRESHOLD", "0.82"))
     detection_confidence: float = 0.35
     image_size: int = 640
-    reid_every_n_frames: int = 10
+    reid_every_n_frames: int = 5
+    min_good_frames_before_reid: int = 3
+    min_embedding_quality: float = 0.55
+    min_update_quality: float = 0.65
     max_frames: int = 500
     min_crop_height: int = 80
     min_crop_width: int = 30

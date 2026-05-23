@@ -38,6 +38,117 @@ def is_valid_crop(crop: np.ndarray | None, min_width: int, min_height: int) -> b
     return w >= min_width and h >= min_height
 
 
+def blur_score(crop: np.ndarray | None) -> float:
+    """Return a normalized sharpness score in the range 0..1.
+
+    The raw Laplacian variance is intentionally compressed into a simple MVP
+    score. It is not a classifier, but good enough to reject obviously blurry
+    crops before they pollute the ReID database.
+    """
+    if crop is None or crop.size == 0:
+        return 0.0
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop
+    variance = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    return float(np.clip(variance / 150.0, 0.0, 1.0))
+
+
+def brightness_score(crop: np.ndarray | None) -> float:
+    """Return a normalized brightness score in the range 0..1.
+
+    A score close to 1 means the crop is neither very dark nor heavily
+    overexposed. The function deliberately does not alter the image; it only
+    decides whether the crop is safe enough for ReID storage.
+    """
+    if crop is None or crop.size == 0:
+        return 0.0
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop
+    mean = float(gray.mean())
+    return float(np.clip(1.0 - abs(mean - 128.0) / 128.0, 0.0, 1.0))
+
+
+def aspect_ratio_score(crop: np.ndarray | None) -> float:
+    if crop is None or crop.size == 0:
+        return 0.0
+    h, w = crop.shape[:2]
+    if w <= 0 or h <= 0:
+        return 0.0
+    ratio = h / max(w, 1)
+    if 1.5 <= ratio <= 4.0:
+        return 1.0
+    if 1.1 <= ratio < 1.5:
+        return float((ratio - 1.1) / 0.4)
+    if 4.0 < ratio <= 5.0:
+        return float(1.0 - (ratio - 4.0) / 1.0)
+    return 0.0
+
+
+def crop_size_score(crop: np.ndarray | None, min_width: int, min_height: int) -> float:
+    if crop is None or crop.size == 0:
+        return 0.0
+    h, w = crop.shape[:2]
+    width_score = min(1.0, w / max(float(min_width * 2), 1.0))
+    height_score = min(1.0, h / max(float(min_height * 2), 1.0))
+    return float(min(width_score, height_score))
+
+
+def edge_cutoff_score(bbox_xyxy: tuple[int, int, int, int], frame_shape: tuple[int, ...], margin: int = 3) -> float:
+    """Estimate whether the person box touches the frame border.
+
+    Border contact often means the person is only partially visible. The score
+    is only a soft penalty because side-entry/exit frames can still be useful
+    for drawing and tracking, but should be less trusted for embedding updates.
+    """
+    height, width = frame_shape[:2]
+    x1, y1, x2, y2 = bbox_xyxy
+    touches_border = x1 <= margin or y1 <= margin or x2 >= width - margin or y2 >= height - margin
+    return 0.65 if touches_border else 1.0
+
+
+def crop_quality_score(
+    crop: np.ndarray | None,
+    bbox_xyxy: tuple[int, int, int, int],
+    frame_shape: tuple[int, ...],
+    detection_confidence: float,
+    min_width: int,
+    min_height: int,
+) -> tuple[float, dict[str, float]]:
+    """Compute a lightweight ReID crop quality score.
+
+    The score is used as a gate before encoding/storing embeddings. It combines
+    sharpness, brightness, crop size, body-like aspect ratio, edge cut-off and
+    YOLO confidence. All components are intentionally explainable and cheap.
+    """
+    if crop is None or crop.size == 0:
+        details = {
+            "blur": 0.0,
+            "brightness": 0.0,
+            "size": 0.0,
+            "aspect_ratio": 0.0,
+            "edge_cutoff": 0.0,
+            "detection_confidence": float(detection_confidence),
+        }
+        return 0.0, details
+
+    details = {
+        "blur": blur_score(crop),
+        "brightness": brightness_score(crop),
+        "size": crop_size_score(crop, min_width=min_width, min_height=min_height),
+        "aspect_ratio": aspect_ratio_score(crop),
+        "edge_cutoff": edge_cutoff_score(bbox_xyxy, frame_shape),
+        "detection_confidence": float(np.clip(detection_confidence, 0.0, 1.0)),
+    }
+
+    score = (
+        details["blur"] * 0.25
+        + details["brightness"] * 0.15
+        + details["size"] * 0.25
+        + details["aspect_ratio"] * 0.15
+        + details["edge_cutoff"] * 0.10
+        + details["detection_confidence"] * 0.10
+    )
+    return float(np.clip(score, 0.0, 1.0)), details
+
+
 def save_crop(crop: np.ndarray, snapshot_dir: Path, person_id: str, frame_index: int) -> Path:
     person_dir = snapshot_dir / person_id
     person_dir.mkdir(parents=True, exist_ok=True)
