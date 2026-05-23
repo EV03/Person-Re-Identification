@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 
 from app.storage.models import Detection
+from app.utils.motion_utils import MotionSnapshot
 
 
 def crop_xyxy(frame: np.ndarray, bbox_xyxy: tuple[int, int, int, int], padding: float = 0.0) -> np.ndarray | None:
@@ -157,7 +158,14 @@ def save_crop(crop: np.ndarray, snapshot_dir: Path, person_id: str, frame_index:
     return path
 
 
-def draw_detection(frame: np.ndarray, detection: Detection, person_id: str | None, score: float | None) -> None:
+def draw_detection(
+    frame: np.ndarray,
+    detection: Detection,
+    person_id: str | None,
+    score: float | None,
+    motion: MotionSnapshot | None = None,
+    draw_motion: bool = False,
+) -> None:
     x1, y1, x2, y2 = detection.bbox_xyxy
     label_parts = [f"track {detection.track_id}"]
     if person_id:
@@ -165,10 +173,23 @@ def draw_detection(frame: np.ndarray, detection: Detection, person_id: str | Non
     if score is not None:
         label_parts.append(f"match {score:.2f}")
     label_parts.append(f"det {detection.confidence:.2f}")
+    if motion is not None and motion.direction_label not in {"new", "still"}:
+        label_parts.append(f"dir {motion.direction_label}")
+    if motion is not None and motion.is_large_jump:
+        label_parts.append("jump")
     label = " | ".join(label_parts)
 
-    color = (0, 220, 120)
+    color = (0, 80, 255) if motion is not None and motion.is_large_jump else (0, 220, 120)
     cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+
+    if draw_motion and motion is not None and motion.direction_label not in {"new", "still"}:
+        center = (int(round(motion.center_x)), int(round(motion.center_y)))
+        arrow_scale = 3.0
+        end = (
+            int(round(motion.center_x + motion.dx * arrow_scale)),
+            int(round(motion.center_y + motion.dy * arrow_scale)),
+        )
+        cv2.arrowedLine(frame, center, end, color, 2, cv2.LINE_AA, tipLength=0.25)
 
     font = cv2.FONT_HERSHEY_SIMPLEX
     font_scale = 0.55

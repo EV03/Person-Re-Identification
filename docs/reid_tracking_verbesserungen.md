@@ -190,3 +190,59 @@ Regeln und Zustand.md
 ### Streamlit-Verbindungsstabilität
 
 Zusätzlich wurde `use_container_width` durch `width` ersetzt, weil neuere Streamlit-Versionen `use_container_width` nicht mehr verwenden sollen. Die Live-Preview wurde standardmäßig auf jedes 10. Frame reduziert und UI-Callback-Fehler werden abgefangen, damit eine kurzzeitig geschlossene Browser-/WebSocket-Verbindung die Videoverarbeitung nicht direkt abbricht.
+
+## Ergänzung: Bewegungsrichtung / Motion Analysis
+
+Die Pipeline wurde um eine leichte Bewegungsanalyse pro bestehender `track_id` erweitert.
+
+### Ziel
+
+Die Bewegungsrichtung soll zunächst nicht als harte ReID-Entscheidung verwendet werden, sondern als Zusatzsignal für Debugging, spätere Plausibilitätsprüfungen und den Football-Modus.
+
+### Neue Werte pro Track
+
+- Mittelpunkt der Bounding Box (`center_x`, `center_y`)
+- vorheriger Mittelpunkt
+- Bewegungsvektor (`dx`, `dy`)
+- Bewegungsrichtung als Label, z. B. `left`, `right`, `up-right`
+- Geschwindigkeit in Pixeln pro Sekunde
+- Plausibilitätswert für große Sprünge
+- Markierung für auffällige Track-Sprünge
+
+### Aktuelles Verhalten
+
+- Bewegungsrichtung wird pro Track berechnet.
+- Bewegungsdaten werden im Event-Payload gespeichert.
+- Im Live-/Output-Bild können Richtungspfeile gezeichnet werden.
+- Auffällige Sprünge werden mit roter Box markiert.
+- Die ReID-Entscheidung bleibt unverändert, damit die bestehende funktionierende Pipeline nicht destabilisiert wird.
+
+### Warum noch keine harte Match-Logik?
+
+Eine harte Regel wie „schlechte Bewegung = kein Match“ kann bei Kameraschnitten, schnellen Bewegungen oder Fußballvideos zu falschen Ablehnungen führen. Deshalb wird Motion aktuell erst als erklärbares Zusatzsignal gesammelt. Nach einigen Benchmark-Läufen kann daraus später eine optionale Plausibilitätsregel entstehen.
+
+### Neue Dateien
+
+- `app/utils/motion_utils.py`
+
+### Geänderte Dateien
+
+- `app/config.py`
+- `app/modes/base_mode.py`
+- `app/modes/default_mode.py`
+- `app/modes/football_mode.py`
+- `app/pipeline/orchestrator.py`
+- `app/storage/vector_store.py`
+- `app/ui/streamlit_app.py`
+- `app/utils/image_utils.py`
+
+### Neue UI-Einstellungen
+
+- `Enable movement direction analysis`
+- `Draw movement arrows`
+- `Max jump fraction`
+- `Motion smoothing`
+
+### Nächster sinnvoller Schritt
+
+Nach mehreren Tests sollte geprüft werden, ob große Sprünge tatsächlich mit falschen Matches oder ID-Switches korrelieren. Erst dann sollte Motion als zusätzliche Entscheidungshilfe in die Match-Logik aufgenommen werden.

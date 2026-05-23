@@ -433,7 +433,28 @@ class SQLiteVectorStore:
                 """,
                 (limit,),
             ).fetchall()
-        return pd.DataFrame([dict(row) for row in rows])
+
+        records: list[dict[str, object]] = []
+        for row in rows:
+            record = dict(row)
+            payload: dict[str, object] = {}
+            if record.get("payload_json"):
+                try:
+                    payload = json.loads(str(record["payload_json"]))
+                except json.JSONDecodeError:
+                    payload = {}
+
+            record["event_type"] = payload.get("event_type")
+            record["quality_score"] = payload.get("quality_score")
+            record["quality_average"] = payload.get("quality_average")
+            record["good_frame_count"] = payload.get("good_frame_count")
+            record["motion_direction"] = payload.get("motion_direction")
+            record["motion_speed_px_per_sec"] = payload.get("motion_speed_px_per_sec")
+            record["motion_plausibility_score"] = payload.get("motion_plausibility_score")
+            record["motion_is_large_jump"] = payload.get("motion_is_large_jump")
+            records.append(record)
+
+        return pd.DataFrame(records)
 
     def analysis_runs_dataframe(self, limit: int = 100) -> pd.DataFrame:
         with self._connect() as conn:
