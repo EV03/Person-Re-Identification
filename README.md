@@ -49,24 +49,7 @@ Das Setup besteht aus:
 
 ---
 
-## 2. Warum kein LLM für die Erkennung?
-
-Ein LLM ist für dieses Kernproblem nicht der richtige Hauptbaustein. Die Wiedererkennung läuft besser über eine klassische Vision-Pipeline:
-
-1. **Person Detection** erkennt, wo Menschen im Bild sind.
-2. **Object Tracking** hält temporäre Track-IDs innerhalb eines Videos stabil.
-3. **ReID Embeddings** beschreiben den visuellen Person-Crop als Vektor.
-4. **Vector Search** sucht ähnliche gespeicherte Personen.
-
-Ein lokales LLM wäre höchstens später sinnvoll, um ein Chat-Interface zu bauen, z. B.:
-
-- „Welche Personen wurden in Video X wiedererkannt?“
-- „Zeige mir alle Tracks mit niedriger Confidence.“
-- „Fasse die Ergebnisse zusammen.“
-
----
-
-## 3. Technische Basis
+## 2. Technische Basis
 
 Dieses MVP nutzt standardmäßig:
 
@@ -88,7 +71,7 @@ Relevante Dokumentationen:
 
 ---
 
-## 4. Projektstruktur
+## 3. Projektstruktur
 
 ```text
 person-reid-mvp/
@@ -127,7 +110,7 @@ person-reid-mvp/
 
 ---
 
-## 4.1 Mode-System
+## 3.1 Mode-System
 
 Der bisherige MVP-Stand ist jetzt als auswählbarer Modus registriert:
 
@@ -170,7 +153,7 @@ Wichtig: Der `football_team_analysis`-Modus nutzt in V1 noch die stabile Default
 
 ---
 
-## 4.2 Football Mode Roadmap
+## 3.2 Football Mode Roadmap
 
 Langfristiges Ziel des Football Modes ist die Analyse von Fußballvideos:
 
@@ -215,9 +198,9 @@ Empfohlene nächste Implementierungsreihenfolge:
 
 ---
 
-## 5. Setup Guide
+## 4. Setup Guide
 
-### 5.1 Voraussetzungen
+### 4.1 Voraussetzungen
 
 Empfohlen:
 
@@ -238,7 +221,7 @@ cd person-reid-mvp
 
 ---
 
-### 5.3 Virtuelle Umgebung erstellen
+### 4.3 Virtuelle Umgebung erstellen
 
 #### Windows PowerShell
 
@@ -265,7 +248,7 @@ python -m pip install --upgrade pip
 
 ---
 
-### 5.4 Dependencies installieren
+### 4.4 Dependencies installieren
 
 ```bash
 pip install -r requirements.txt
@@ -289,7 +272,7 @@ http://localhost:8501
 
 ---
 
-## 6. Bedienung
+## 5. Bedienung
 
 ### Option A: Video hochladen
 
@@ -315,7 +298,7 @@ Hinweis: Die lokale Webcam wird über OpenCV geöffnet. Das ist nicht dasselbe w
 
 ---
 
-## 7. Wichtige Parameter
+## 6. Wichtige Parameter
 
 | Parameter                     | Bedeutung                                                                           | Empfehlung für Start |
 | ----------------------------- | ----------------------------------------------------------------------------------- | -------------------- |
@@ -334,7 +317,7 @@ Wenn dieselbe Person oft als neue Person erkannt wird, senke den Threshold leich
 
 ---
 
-## 8. Datenbank und gespeicherte Daten
+## 7. Datenbank und gespeicherte Daten
 
 Standardpfade:
 
@@ -361,7 +344,7 @@ Nicht gespeichert werden:
 
 ---
 
-## 9. Datenbank zurücksetzen
+## 8. Datenbank zurücksetzen
 
 ```bash
 python scripts/reset_db.py
@@ -375,7 +358,7 @@ Das löscht:
 
 ---
 
-## 10. Optional: Torchreid / OSNet aktivieren
+## 9. Optional: Torchreid / OSNet aktivieren
 
 Der Standard-Encoder `colorhist` ist nur ein schneller Demo-Encoder. Für echte Person-ReID ist ein spezialisiertes Modell wie OSNet sinnvoller.
 
@@ -397,7 +380,7 @@ Hinweis: Torch/PyTorch-Installationen hängen stark von Betriebssystem und CUDA-
 
 ---
 
-## 11. Optional: Qdrant vorbereiten
+## 10. Optional: Qdrant vorbereiten
 
 Dieses MVP nutzt standardmäßig SQLite, damit kein zusätzlicher Dienst nötig ist.
 
@@ -417,7 +400,7 @@ Der Qdrant-Adapter ist in diesem MVP bewusst noch nicht als Default aktiv, weil 
 
 ---
 
-## 12. Grenzen dieses MVPs
+## 11. Grenzen dieses MVPs
 
 Dieses Setup ist absichtlich klein und schnell startbar. Deshalb gibt es Grenzen:
 
@@ -429,7 +412,7 @@ Dieses Setup ist absichtlich klein und schnell startbar. Deshalb gibt es Grenzen
 
 ---
 
-## 13. Empfohlene nächste Ausbaustufen
+## 12. Empfohlene nächste Ausbaustufen
 
 ### Phase 1: MVP stabilisieren
 
@@ -463,7 +446,7 @@ Dieses Setup ist absichtlich klein und schnell startbar. Deshalb gibt es Grenzen
 
 ---
 
-## 14. Live-Tracking und Anzeige
+## 13. Live-Tracking und Anzeige
 
 Die App erzeugt jetzt zwei verschiedene Visualisierungen:
 
@@ -481,7 +464,7 @@ Bei CPU-only kann die Live-Vorschau ruckeln. Dann helfen diese Einstellungen:
 
 ---
 
-## 15. Troubleshooting
+## 14. Troubleshooting
 
 ### `ModuleNotFoundError: No module named 'ultralytics'`
 
@@ -516,7 +499,7 @@ Probiere ein `.mp4` mit H.264-Encoding. Manche `.mov` oder `.mkv` Dateien sind j
 
 ---
 
-## 16. Startbefehl kompakt
+## 15. Startbefehl kompakt
 
 ```bash
 python -m venv .venv
