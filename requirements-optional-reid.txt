@@ -1,6 +1,4 @@
-# Optional: real person re-identification backend.
-# Install after the basic setup works.
-# Depending on your OS/CUDA setup, install torch from https://pytorch.org/get-started/locally/ first.
-torch>=2.2
-torchvision>=0.17
-torchreid>=0.2.5
+# Torchreid/OSNet backend. If PyPI package resolution fails, use the GitHub install below.
+torchreid
+# Alternative:
+# git+https://github.com/KaiyangZhou/deep-person-reid.git

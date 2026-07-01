@@ -49,6 +49,13 @@ class PipelineConfig:
     yolo_model: str = os.getenv("REID_DEFAULT_MODEL", "yolov8n.pt")
     tracker: str = os.getenv("REID_DEFAULT_TRACKER", "bytetrack.yaml")
     encoder_backend: str = os.getenv("REID_DEFAULT_ENCODER", "torchreid")
+    vector_store_backend: str = os.getenv("REID_VECTOR_STORE_BACKEND", "sqlite")
+    qdrant_url: str = os.getenv("QDRANT_URL", "http://localhost:6333")
+    qdrant_api_key: str = os.getenv("QDRANT_API_KEY", "")
+    qdrant_collection: str = os.getenv("QDRANT_COLLECTION", "person_reid_embeddings")
+    qdrant_mode: str = os.getenv("QDRANT_MODE", "local")
+    qdrant_local_path: str = os.getenv("QDRANT_LOCAL_PATH", "data/qdrant_local")
+    qdrant_prefer_grpc: bool = os.getenv("QDRANT_PREFER_GRPC", "false").lower() in {"1", "true", "yes", "on"}
     match_threshold: float = float(os.getenv("REID_DEFAULT_THRESHOLD", "0.82"))
     detection_confidence: float = 0.35
     image_size: int = 640
@@ -65,6 +72,7 @@ class PipelineConfig:
     live_preview_every_n_frames: int = 10
     enable_motion_analysis: bool = True
     draw_motion_vectors: bool = True
+    disable_internal_motion_when_botsort: bool = False
     motion_max_jump_fraction: float = 0.20
     motion_smoothing_alpha: float = 0.35
     motion_min_displacement_px: float = 2.0

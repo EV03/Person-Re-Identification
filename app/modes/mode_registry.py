@@ -8,10 +8,12 @@ from app.config import AppPaths
 from app.modes.base_mode import ModeConfig
 from app.modes.default_mode import build_default_mode
 from app.modes.football_mode import build_football_mode
+from app.modes.max_accuracy_mode import build_max_accuracy_mode
 
 _BUILTIN_MODES = (
     build_default_mode,
     build_football_mode,
+    build_max_accuracy_mode,
 )
 
 

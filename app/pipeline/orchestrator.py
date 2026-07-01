@@ -11,7 +11,7 @@ from app.config import AppPaths, PipelineConfig
 from app.pipeline.detector_tracker import UltralyticsPersonTracker
 from app.pipeline.reid_encoder import build_encoder
 from app.storage.models import PipelineResult
-from app.storage.vector_store import SQLiteVectorStore
+from app.storage.store_factory import build_vector_store
 from app.utils.camera_utils import CameraSource, open_camera_capture
 from app.utils.id_utils import make_run_id, safe_source_name
 from app.utils.motion_utils import MotionSnapshot, MotionTracker
@@ -44,7 +44,7 @@ class PersonReIdPipeline:
         self.config = config
         self.paths = paths or AppPaths()
         self.paths.ensure()
-        self.store = SQLiteVectorStore(self.paths.db_path)
+        self.store = build_vector_store(config, self.paths)
         self.tracker = UltralyticsPersonTracker(
             model_name=config.yolo_model,
             tracker=config.tracker,
@@ -53,6 +53,11 @@ class PersonReIdPipeline:
             device=config.device,
         )
         self.encoder = build_encoder(config.encoder_backend, device=config.device)
+
+    def close(self) -> None:
+        store_close = getattr(self.store, "close", None)
+        if callable(store_close):
+            store_close()
 
     def _open_capture(self, source: str | int | CameraSource) -> cv2.VideoCapture:
         if isinstance(source, CameraSource):
@@ -90,6 +95,13 @@ class PersonReIdPipeline:
             "Ball tracking, pitch mapping, team classification and stats aggregation "
             "are prepared as mode flags/placeholders and must be wired in next."
         )
+
+    def _internal_motion_analysis_enabled(self) -> bool:
+        if not self.config.enable_motion_analysis:
+            return False
+        if self.config.disable_internal_motion_when_botsort and "botsort" in self.config.tracker.lower():
+            return False
+        return True
 
     def _quality_payload(
         self,
@@ -172,6 +184,12 @@ class PersonReIdPipeline:
                 "yolo_model": self.config.yolo_model,
                 "tracker": self.config.tracker,
                 "encoder_backend": self.config.encoder_backend,
+                "vector_store_backend": self.config.vector_store_backend,
+                "qdrant_url": self.config.qdrant_url if self.config.vector_store_backend == "qdrant" else None,
+                "qdrant_collection": self.config.qdrant_collection if self.config.vector_store_backend == "qdrant" else None,
+                "qdrant_mode": self.config.qdrant_mode if self.config.vector_store_backend == "qdrant" else None,
+                "qdrant_local_path": self.config.qdrant_local_path if self.config.vector_store_backend == "qdrant" else None,
+                "qdrant_prefer_grpc": self.config.qdrant_prefer_grpc if self.config.vector_store_backend == "qdrant" else None,
                 "match_threshold": self.config.match_threshold,
                 "detection_confidence": self.config.detection_confidence,
                 "image_size": self.config.image_size,
@@ -180,7 +198,9 @@ class PersonReIdPipeline:
                 "min_embedding_quality": self.config.min_embedding_quality,
                 "min_update_quality": self.config.min_update_quality,
                 "enable_motion_analysis": self.config.enable_motion_analysis,
+                "internal_motion_analysis_enabled": self._internal_motion_analysis_enabled(),
                 "draw_motion_vectors": self.config.draw_motion_vectors,
+                "disable_internal_motion_when_botsort": self.config.disable_internal_motion_when_botsort,
                 "motion_max_jump_fraction": self.config.motion_max_jump_fraction,
                 "motion_smoothing_alpha": self.config.motion_smoothing_alpha,
                 "motion_min_displacement_px": self.config.motion_min_displacement_px,
@@ -194,13 +214,18 @@ class PersonReIdPipeline:
         track_to_person: dict[int, str] = {}
         track_to_last_score: dict[int, float | None] = {}
         track_candidates: dict[int, list[TrackEmbeddingCandidate]] = {}
-        motion_tracker = MotionTracker(
-            fps=float(fps),
-            frame_width=width,
-            frame_height=height,
-            max_jump_fraction=self.config.motion_max_jump_fraction,
-            smoothing_alpha=self.config.motion_smoothing_alpha,
-            min_displacement_px=self.config.motion_min_displacement_px,
+        internal_motion_analysis_enabled = self._internal_motion_analysis_enabled()
+        motion_tracker = (
+            MotionTracker(
+                fps=float(fps),
+                frame_width=width,
+                frame_height=height,
+                max_jump_fraction=self.config.motion_max_jump_fraction,
+                smoothing_alpha=self.config.motion_smoothing_alpha,
+                min_displacement_px=self.config.motion_min_displacement_px,
+            )
+            if internal_motion_analysis_enabled
+            else None
         )
         created_persons = 0
         matched_events = 0
@@ -212,6 +237,13 @@ class PersonReIdPipeline:
         mode_warning = self._mode_warning()
         if mode_warning:
             warnings.append(mode_warning)
+        if (
+            self.config.enable_motion_analysis
+            and not internal_motion_analysis_enabled
+            and self.config.disable_internal_motion_when_botsort
+            and "botsort" in self.config.tracker.lower()
+        ):
+            warnings.append("Internal direction analysis disabled because BoT-SORT is active.")
 
         while True:
             ok, frame = cap.read()
@@ -228,11 +260,15 @@ class PersonReIdPipeline:
             for detection in detections:
                 person_id = track_to_person.get(detection.track_id)
                 score = track_to_last_score.get(detection.track_id)
-                motion = motion_tracker.update(
-                    track_id=detection.track_id,
-                    bbox_xyxy=detection.bbox_xyxy,
-                    frame_index=frame_index,
-                ) if self.config.enable_motion_analysis else None
+                motion = (
+                    motion_tracker.update(
+                        track_id=detection.track_id,
+                        bbox_xyxy=detection.bbox_xyxy,
+                        frame_index=frame_index,
+                    )
+                    if internal_motion_analysis_enabled and motion_tracker is not None
+                    else None
+                )
                 if motion is not None and motion.is_large_jump:
                     large_motion_jumps += 1
                 should_reid = person_id is None or frame_index % max(1, self.config.reid_every_n_frames) == 0
@@ -248,7 +284,7 @@ class PersonReIdPipeline:
                                 person_id,
                                 score,
                                 motion=motion,
-                                draw_motion=self.config.draw_motion_vectors,
+                                draw_motion=self.config.draw_motion_vectors and internal_motion_analysis_enabled,
                             )
                         continue
 
@@ -269,7 +305,7 @@ class PersonReIdPipeline:
                                 person_id,
                                 score,
                                 motion=motion,
-                                draw_motion=self.config.draw_motion_vectors,
+                                draw_motion=self.config.draw_motion_vectors and internal_motion_analysis_enabled,
                             )
                         continue
 
@@ -295,13 +331,13 @@ class PersonReIdPipeline:
                             waiting_for_good_frames += 1
                             if self.config.draw_debug:
                                 draw_detection(
-                                frame,
-                                detection,
-                                person_id,
-                                score,
-                                motion=motion,
-                                draw_motion=self.config.draw_motion_vectors,
-                            )
+                                    frame,
+                                    detection,
+                                    person_id,
+                                    score,
+                                    motion=motion,
+                                    draw_motion=self.config.draw_motion_vectors and internal_motion_analysis_enabled,
+                                )
                             continue
 
                         combined_embedding = self._combined_embedding(candidates)
@@ -378,13 +414,13 @@ class PersonReIdPipeline:
 
                 if self.config.draw_debug:
                     draw_detection(
-                                frame,
-                                detection,
-                                person_id,
-                                score,
-                                motion=motion,
-                                draw_motion=self.config.draw_motion_vectors,
-                            )
+                        frame,
+                        detection,
+                        person_id,
+                        score,
+                        motion=motion,
+                        draw_motion=self.config.draw_motion_vectors and internal_motion_analysis_enabled,
+                    )
 
             writer.write(frame)
 

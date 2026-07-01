@@ -1,7 +1,9 @@
-streamlit>=1.34
-ultralytics>=8.2
-opencv-python-headless>=4.9
-numpy>=1.26
-pandas>=2.2
-Pillow>=10.0
-python-dotenv>=1.0
+ultralytics
+opencv-python
+numpy
+pandas
+streamlit
+python-dotenv
+qdrant-client
+# Optional but recommended for the max accuracy mode:
+# pip install git+https://github.com/KaiyangZhou/deep-person-reid.git

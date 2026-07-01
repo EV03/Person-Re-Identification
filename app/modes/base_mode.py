@@ -23,6 +23,13 @@ class ModeConfig:
     yolo_model: str = "yolov8n.pt"
     tracker: str = "bytetrack.yaml"
     encoder_backend: str = "torchreid"
+    vector_store_backend: str = "sqlite"
+    qdrant_url: str = "http://localhost:6333"
+    qdrant_api_key: str = ""
+    qdrant_collection: str = "person_reid_embeddings"
+    qdrant_mode: str = "local"
+    qdrant_local_path: str = "data/qdrant_local"
+    qdrant_prefer_grpc: bool = False
     match_threshold: float = 0.82
     detection_confidence: float = 0.35
     image_size: int = 640
@@ -39,6 +46,7 @@ class ModeConfig:
     live_preview_every_n_frames: int = 10
     enable_motion_analysis: bool = True
     draw_motion_vectors: bool = True
+    disable_internal_motion_when_botsort: bool = False
     motion_max_jump_fraction: float = 0.20
     motion_smoothing_alpha: float = 0.35
     motion_min_displacement_px: float = 2.0

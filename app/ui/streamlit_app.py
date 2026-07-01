@@ -16,7 +16,7 @@ from app.config import AppPaths
 from app.modes.base_mode import ModeConfig
 from app.modes.mode_registry import list_modes, normalize_mode_id, save_custom_mode
 from app.pipeline.orchestrator import PersonReIdPipeline
-from app.storage.vector_store import SQLiteVectorStore
+from app.storage.store_factory import build_vector_store
 from app.utils.camera_utils import (
     CameraSource,
     camera_backends,
@@ -94,6 +94,28 @@ def render_create_mode_form(paths: AppPaths, modes: dict[str, ModeConfig]) -> No
                     options=["colorhist", "torchreid"],
                     index=option_index(["colorhist", "torchreid"], base_mode.encoder_backend),
                 )
+                custom_vector_store_backend = st.selectbox(
+                    "Vector store default",
+                    options=["sqlite", "qdrant"],
+                    index=option_index(["sqlite", "qdrant"], base_mode.vector_store_backend),
+                )
+                custom_qdrant_collection = st.text_input(
+                    "Qdrant collection default",
+                    value=base_mode.qdrant_collection,
+                    disabled=custom_vector_store_backend != "qdrant",
+                )
+                custom_qdrant_mode = st.selectbox(
+                    "Qdrant mode default",
+                    options=["local", "server", "memory"],
+                    index=option_index(["local", "server", "memory"], base_mode.qdrant_mode),
+                    disabled=custom_vector_store_backend != "qdrant",
+                    help="local läuft ohne Docker/Server und speichert auf Platte. server erwartet einen laufenden Qdrant-Dienst.",
+                )
+                custom_qdrant_local_path = st.text_input(
+                    "Qdrant local path default",
+                    value=base_mode.qdrant_local_path,
+                    disabled=custom_vector_store_backend != "qdrant" or custom_qdrant_mode != "local",
+                )
             with col_b:
                 custom_threshold = st.slider(
                     "Match threshold default",
@@ -145,6 +167,13 @@ def render_create_mode_form(paths: AppPaths, modes: dict[str, ModeConfig]) -> No
                     yolo_model=custom_yolo_model,
                     tracker=custom_tracker,
                     encoder_backend=custom_encoder,
+                    vector_store_backend=custom_vector_store_backend,
+                    qdrant_url=base_mode.qdrant_url,
+                    qdrant_api_key=base_mode.qdrant_api_key,
+                    qdrant_collection=custom_qdrant_collection,
+                    qdrant_mode=custom_qdrant_mode,
+                    qdrant_local_path=custom_qdrant_local_path,
+                    qdrant_prefer_grpc=base_mode.qdrant_prefer_grpc,
                     match_threshold=float(custom_threshold),
                     detection_confidence=float(custom_detection_conf),
                     image_size=base_mode.image_size,
@@ -161,6 +190,7 @@ def render_create_mode_form(paths: AppPaths, modes: dict[str, ModeConfig]) -> No
                     live_preview_every_n_frames=base_mode.live_preview_every_n_frames,
                     enable_motion_analysis=base_mode.enable_motion_analysis,
                     draw_motion_vectors=base_mode.draw_motion_vectors,
+                    disable_internal_motion_when_botsort=base_mode.disable_internal_motion_when_botsort,
                     motion_max_jump_fraction=base_mode.motion_max_jump_fraction,
                     motion_smoothing_alpha=base_mode.motion_smoothing_alpha,
                     motion_min_displacement_px=base_mode.motion_min_displacement_px,
@@ -183,7 +213,7 @@ paths = AppPaths()
 paths.ensure()
 
 st.title("Local Person Re-Identification MVP")
-st.caption("Lokales Demo-Setup mit auswählbaren Modi, YOLO Tracking, ReID Embeddings und SQLite Vector Store")
+st.caption("Lokales Demo-Setup mit auswählbaren Modi, YOLO Tracking, ReID Embeddings und SQLite/Qdrant Vector Store")
 
 modes = list_modes(paths)
 
@@ -220,6 +250,33 @@ with st.sidebar:
         ["colorhist", "torchreid"],
         index=option_index(["colorhist", "torchreid"], selected_mode.encoder_backend),
     )
+    vector_store_backend = st.selectbox(
+        "Vector store",
+        ["sqlite", "qdrant"],
+        index=option_index(["sqlite", "qdrant"], selected_mode.vector_store_backend),
+        help="SQLite ist die leichte MVP-Variante. Qdrant nutzt eine echte Vector Database für Embedding-Suche.",
+    )
+    qdrant_url = selected_mode.qdrant_url
+    qdrant_collection = selected_mode.qdrant_collection
+    qdrant_mode = selected_mode.qdrant_mode
+    qdrant_local_path = selected_mode.qdrant_local_path
+    qdrant_prefer_grpc = selected_mode.qdrant_prefer_grpc
+    if vector_store_backend == "qdrant":
+        qdrant_mode = st.selectbox(
+            "Qdrant mode",
+            ["local", "server", "memory"],
+            index=option_index(["local", "server", "memory"], selected_mode.qdrant_mode),
+            help="local läuft ohne Docker/Server und speichert in einem lokalen Ordner. server nutzt http://localhost:6333 oder eine Qdrant-Cloud/Server-URL.",
+        )
+        qdrant_collection = st.text_input("Qdrant collection", value=selected_mode.qdrant_collection)
+        if qdrant_mode == "local":
+            qdrant_local_path = st.text_input("Qdrant local path", value=selected_mode.qdrant_local_path)
+            st.caption("Qdrant Local nutzt qdrant-client eingebettet im Python-Prozess. Es wird kein Docker und kein localhost:6333 benötigt.")
+        elif qdrant_mode == "server":
+            qdrant_url = st.text_input("Qdrant URL", value=selected_mode.qdrant_url)
+            qdrant_prefer_grpc = st.checkbox("Prefer Qdrant gRPC", value=bool(selected_mode.qdrant_prefer_grpc))
+        else:
+            st.caption("Qdrant Memory speichert nur bis zum Neustart der App und ist nur für schnelle Tests sinnvoll.")
 
     match_threshold = st.slider(
         "Match threshold",
@@ -282,15 +339,25 @@ with st.sidebar:
 
     st.divider()
     st.header("Motion Analysis")
+    disable_internal_motion_when_botsort = st.checkbox(
+        "Disable internal direction analysis when BoT-SORT is selected",
+        value=bool(selected_mode.disable_internal_motion_when_botsort),
+        help="Für die Max-Variante wird die eigene Richtungserkennung deaktiviert, sobald BoT-SORT genutzt wird.",
+    )
+    botsort_disables_internal_motion = disable_internal_motion_when_botsort and "botsort" in tracker.lower()
+    if botsort_disables_internal_motion:
+        st.caption("Eigene Direction-Erkennung ist in diesem Lauf deaktiviert, weil BoT-SORT aktiv ist.")
+
     enable_motion_analysis = st.checkbox(
         "Enable movement direction analysis",
-        value=bool(selected_mode.enable_motion_analysis),
+        value=bool(selected_mode.enable_motion_analysis) and not botsort_disables_internal_motion,
+        disabled=botsort_disables_internal_motion,
         help="Berechnet pro Track Bewegungsrichtung, Geschwindigkeit und Sprung-Plausibilität im Bildraum.",
     )
     draw_motion_vectors = st.checkbox(
         "Draw movement arrows",
-        value=bool(selected_mode.draw_motion_vectors),
-        disabled=not enable_motion_analysis,
+        value=bool(selected_mode.draw_motion_vectors) and not botsort_disables_internal_motion,
+        disabled=not enable_motion_analysis or botsort_disables_internal_motion,
         help="Zeichnet Richtungspfeile im Live-/Output-Bild. Rote Boxen markieren große Sprünge.",
     )
     motion_max_jump_fraction = st.slider(
@@ -414,8 +481,26 @@ with col_run:
     )
 
 with col_db:
-    store = SQLiteVectorStore(paths.db_path)
-    st.metric("Known synthetic persons", store.count_persons())
+    metric_config = selected_mode.to_pipeline_config(
+        yolo_model=yolo_model,
+        tracker=tracker,
+        encoder_backend=encoder_backend,
+        vector_store_backend=vector_store_backend,
+        qdrant_url=qdrant_url,
+        qdrant_api_key=selected_mode.qdrant_api_key,
+        qdrant_collection=qdrant_collection,
+        qdrant_mode=qdrant_mode,
+        qdrant_local_path=qdrant_local_path,
+        qdrant_prefer_grpc=bool(qdrant_prefer_grpc),
+    )
+    try:
+        store = build_vector_store(metric_config, paths)
+        st.metric("Known synthetic persons", store.count_persons())
+        if hasattr(store, "close"):
+            store.close()
+    except Exception as exc:
+        store = None
+        st.warning(f"Vector store not reachable: {exc}")
 
 live_preview_placeholder = st.empty()
 status_placeholder = st.empty()
@@ -425,6 +510,13 @@ if run_clicked and source is not None:
         yolo_model=yolo_model,
         tracker=tracker,
         encoder_backend=encoder_backend,
+        vector_store_backend=vector_store_backend,
+        qdrant_url=qdrant_url,
+        qdrant_api_key=selected_mode.qdrant_api_key,
+        qdrant_collection=qdrant_collection,
+        qdrant_mode=qdrant_mode,
+        qdrant_local_path=qdrant_local_path,
+        qdrant_prefer_grpc=bool(qdrant_prefer_grpc),
         match_threshold=float(match_threshold),
         detection_confidence=float(detection_confidence),
         image_size=int(image_size),
@@ -437,6 +529,7 @@ if run_clicked and source is not None:
         live_preview_every_n_frames=int(preview_every_n_frames),
         enable_motion_analysis=bool(enable_motion_analysis),
         draw_motion_vectors=bool(draw_motion_vectors),
+        disable_internal_motion_when_botsort=bool(disable_internal_motion_when_botsort),
         motion_max_jump_fraction=float(motion_max_jump_fraction),
         motion_smoothing_alpha=float(motion_smoothing_alpha),
     )
@@ -470,7 +563,11 @@ if run_clicked and source is not None:
 
     try:
         pipeline = PersonReIdPipeline(config=config, paths=paths)
-        result = pipeline.process(source, progress_callback=update_progress, frame_callback=update_live_preview)
+        try:
+            result = pipeline.process(source, progress_callback=update_progress, frame_callback=update_live_preview)
+        finally:
+            if hasattr(pipeline, "close"):
+                pipeline.close()
     except Exception as exc:
         st.error(str(exc))
         st.stop()
@@ -496,10 +593,30 @@ if run_clicked and source is not None:
 
 st.divider()
 
-store = SQLiteVectorStore(paths.db_path)
-persons_df = store.persons_dataframe()
-events_df = store.events_dataframe(limit=200)
-runs_df = store.analysis_runs_dataframe(limit=100)
+table_config = selected_mode.to_pipeline_config(
+    yolo_model=yolo_model,
+    tracker=tracker,
+    encoder_backend=encoder_backend,
+    vector_store_backend=vector_store_backend,
+    qdrant_url=qdrant_url,
+    qdrant_api_key=selected_mode.qdrant_api_key,
+    qdrant_collection=qdrant_collection,
+    qdrant_mode=qdrant_mode,
+    qdrant_local_path=qdrant_local_path,
+    qdrant_prefer_grpc=bool(qdrant_prefer_grpc),
+)
+try:
+    store = build_vector_store(table_config, paths)
+    persons_df = store.persons_dataframe()
+    events_df = store.events_dataframe(limit=200)
+    runs_df = store.analysis_runs_dataframe(limit=100)
+    if hasattr(store, "close"):
+        store.close()
+except Exception as exc:
+    st.warning(f"Could not load stored results: {exc}")
+    persons_df = pd.DataFrame()
+    events_df = pd.DataFrame()
+    runs_df = pd.DataFrame()
 
 st.subheader("Analysis runs")
 if runs_df.empty:
