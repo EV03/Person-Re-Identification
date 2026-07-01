@@ -15,3 +15,5 @@ data/qdrant/*
 !data/output/.gitkeep
 !data/snapshots/.gitkeep
 !data/db/.gitkeep
+yolov8x.pt
+yolov8n.pt
