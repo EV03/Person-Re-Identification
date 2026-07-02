@@ -3,8 +3,6 @@
 Dieses Repository ist ein kleines, lokal lauffähiges MVP für **Person Re-Identification**.
 Es nimmt ein Video oder optional eine lokale Webcam als Eingabe, erkennt Personen, verfolgt sie im Video, erstellt Embeddings aus den Person-Crops und speichert synthetische Personen-IDs in einer lokalen Datenbank.
 
-> Wichtig: Dieses MVP ist bewusst als **Demo- und Forschungssetup** gebaut. Es speichert standardmäßig keine echten Namen, keine Gesichter als Identitätsprofil und keine personenbezogenen Attribute. Es erzeugt nur synthetische IDs wie `person_000001`.
-
 ---
 
 starten mit
