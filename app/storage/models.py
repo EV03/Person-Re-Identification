@@ -20,6 +20,14 @@ class MatchResult:
     person_id: str
     score: float
     is_new: bool
+    visual_score: float | None = None
+    detail_score: float | None = None
+    detail_weight: float = 0.0
+    detail_breakdown: dict[str, Any] = field(default_factory=dict)
+    decision_zone: str = "unknown"
+    reference_type: str = "mean"
+    reference_quality: float | None = None
+    top_matches: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

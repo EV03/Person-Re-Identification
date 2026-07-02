@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import subprocess
 from pathlib import Path
 
 # Allow running this file directly via: streamlit run app/ui/streamlit_app.py
@@ -23,6 +24,7 @@ from app.utils.camera_utils import (
     read_single_preview_frame,
     scan_local_cameras,
 )
+from app.utils.detail_utils import registry_groups_payload
 from app.utils.id_utils import ensure_unique_path
 
 
@@ -53,6 +55,147 @@ def option_index(options: list[str], value: str, fallback: int = 0) -> int:
         return options.index(value)
     except ValueError:
         return fallback
+
+
+def apply_polished_theme() -> None:
+    st.markdown(
+        """
+        <style>
+        :root {
+            --accent: #5b8cff;
+            --accent-soft: rgba(91, 140, 255, 0.16);
+            --panel: #171b24;
+            --panel-2: #202532;
+            --text-muted: #aab2c0;
+        }
+        .stApp { background: linear-gradient(180deg, #0f131b 0%, #111620 100%); }
+        section[data-testid="stSidebar"] { background: #171b24; border-right: 1px solid #2a3140; }
+        section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {
+            letter-spacing: .01em;
+        }
+        div[data-testid="stMetric"] {
+            background: #171b24;
+            border: 1px solid #2d3545;
+            border-radius: 12px;
+            padding: 0.8rem 1rem;
+        }
+        div[data-testid="stExpander"] {
+            background: rgba(32,37,50,0.72);
+            border: 1px solid #2d3545;
+            border-radius: 12px;
+        }
+        .stButton > button[kind="primary"] {
+            background: linear-gradient(90deg, #5b8cff, #6f9cff);
+            border: 0;
+            color: #ffffff;
+        }
+        .stButton > button { border-radius: 10px; }
+        .stSlider [data-baseweb="slider"] > div { color: #5b8cff; }
+        .small-note { color: var(--text-muted); font-size: 0.9rem; }
+        .mode-card {
+            border: 1px solid #2d3545;
+            background: linear-gradient(180deg, rgba(32,37,50,.85), rgba(23,27,36,.85));
+            border-radius: 14px;
+            padding: 1rem;
+            margin-bottom: .8rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def help_md(title: str, body: str) -> None:
+    with st.expander(f"? {title}", expanded=False):
+        st.caption(body)
+
+
+def list_evaluation_runs(paths: AppPaths) -> list[Path]:
+    root = paths.output_dir.parent / "evaluation_runs"
+    if not root.exists():
+        return []
+    return sorted([p for p in root.iterdir() if p.is_dir()], key=lambda p: p.stat().st_mtime, reverse=True)
+
+
+def render_evaluation_results(paths: AppPaths) -> None:
+    st.subheader("Evaluation results")
+    st.caption("Liest all_videos_summary.csv aus data/evaluation_runs und zeigt die Testergebnisse filterbar im Default-Modus.")
+    runs = list_evaluation_runs(paths)
+    if not runs:
+        st.info("Noch keine Evaluation-Runs gefunden. Erwarteter Ordner: data/evaluation_runs/<run_id>/all_videos_summary.csv")
+        return
+    run = st.selectbox("Evaluation run", runs, format_func=lambda p: p.name, help="Ordner mit all_videos_summary.csv auswählen.")
+    summary_path = run / "all_videos_summary.csv"
+    if not summary_path.exists():
+        st.warning(f"Keine all_videos_summary.csv in {run}")
+        return
+    df = pd.read_csv(summary_path)
+    if df.empty:
+        st.info("Die Summary-Datei ist leer.")
+        return
+
+    with st.expander("Tabellenfilter und Spalten", expanded=True):
+        cols = list(df.columns)
+        selected_cols = st.multiselect("Angezeigte Spalten", cols, default=cols, help="Spalten ein-/ausblenden.")
+        condition_col = next((c for c in cols if c.lower() in {"condition", "bedingung"}), None)
+        if condition_col:
+            conditions = sorted([str(x) for x in df[condition_col].dropna().unique()])
+            selected_conditions = st.multiselect("Bedingungen", conditions, default=conditions)
+            df = df[df[condition_col].astype(str).isin(selected_conditions)]
+        search = st.text_input("Suche", value="", help="Filtert alle Zeilen über eine Volltextsuche in der Tabelle.")
+        if search:
+            mask = df.astype(str).apply(lambda row: row.str.contains(search, case=False, na=False).any(), axis=1)
+            df = df[mask]
+    if selected_cols:
+        df = df[selected_cols]
+    st.dataframe(df, width="stretch", hide_index=True)
+    with st.expander("Wie sind diese Werte zu lesen?", expanded=False):
+        st.markdown(
+            """
+            - **Track IDs**: temporäre IDs innerhalb eines Videos. Viele Track IDs deuten auf Tracking-Fragmentierung hin.
+            - **Person IDs**: globale ReID-Profile. Mehrere IDs bei einer echten Person deuten auf ReID-Fragmentierung hin.
+            - **Dominant Ratio / Expected Ratio**: Anteil der dominanten bzw. erwarteten Person-ID an allen ReID-Events.
+            - **Neue Personen**: zeigt, wie oft das System trotz vorhandener Profile neue IDs erzeugt hat.
+            - **Bewertung**: zusammenfassende Einstufung aus den berechneten Metriken.
+            """
+        )
+
+
+def render_evaluation_runner(paths: AppPaths) -> None:
+    with st.expander("Evaluation/Testlauf starten", expanded=False):
+        st.caption("Startet scripts/evaluate_single_person_videos.py direkt aus der Oberfläche. Für lange Testläufe kann PowerShell weiterhin robuster sein.")
+        manifest = st.text_input("Manifest", value=str(paths.input_dir.parent / "evaluation_manifest.csv"), help="CSV mit phase, video_path, condition, expected_person_id, notes.")
+        output_dir = st.text_input("Output directory", value=str(paths.input_dir.parent / "evaluation_runs"), help="Hier entstehen all_videos_summary.csv und die Video-Unterordner.")
+        test_mode = st.selectbox(
+            "Test mode",
+            ["adaptive_calibration", "fixed_db", "growing_db"],
+            index=0,
+            help="adaptive_calibration nutzt ein Kalibrierungsvideo als Start und erlaubt kontrolliertes Wachstum.",
+        )
+        max_frames_eval = st.number_input("Max frames für Test", min_value=0, max_value=100000, value=0, step=100, help="0 bedeutet komplettes Video.")
+        cmd = [
+            sys.executable,
+            "scripts/evaluate_single_person_videos.py",
+            "run",
+            "--manifest", manifest,
+            "--output-dir", output_dir,
+            "--test-mode", test_mode,
+            "--max-frames", str(int(max_frames_eval)),
+        ]
+        st.code(" ".join(cmd), language="powershell")
+        if st.button("Testlauf ausführen", width="stretch"):
+            try:
+                proc = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True, timeout=None)
+                if proc.stdout:
+                    st.text_area("stdout", proc.stdout[-12000:], height=260)
+                if proc.stderr:
+                    st.text_area("stderr", proc.stderr[-6000:], height=180)
+                if proc.returncode == 0:
+                    st.success("Testlauf abgeschlossen.")
+                else:
+                    st.error(f"Testlauf beendet mit Code {proc.returncode}.")
+            except Exception as exc:
+                st.error(f"Testlauf konnte nicht gestartet werden: {exc}")
 
 
 def render_create_mode_form(paths: AppPaths, modes: dict[str, ModeConfig]) -> None:
@@ -194,6 +337,10 @@ def render_create_mode_form(paths: AppPaths, modes: dict[str, ModeConfig]) -> No
                     motion_max_jump_fraction=base_mode.motion_max_jump_fraction,
                     motion_smoothing_alpha=base_mode.motion_smoothing_alpha,
                     motion_min_displacement_px=base_mode.motion_min_displacement_px,
+                    enable_detail_analysis=base_mode.enable_detail_analysis,
+                    detail_weight=base_mode.detail_weight,
+                    detail_min_confidence=base_mode.detail_min_confidence,
+                    draw_detail_labels=base_mode.draw_detail_labels,
                     enable_ball_tracking=bool(enable_ball_tracking),
                     enable_pitch_mapping=bool(enable_pitch_mapping),
                     enable_team_classification=bool(enable_team_classification),
@@ -208,6 +355,7 @@ def render_create_mode_form(paths: AppPaths, modes: dict[str, ModeConfig]) -> No
 
 
 st.set_page_config(page_title="Local Person ReID MVP", layout="wide")
+apply_polished_theme()
 
 paths = AppPaths()
 paths.ensure()
@@ -225,7 +373,12 @@ with st.sidebar:
         format_func=lambda mode_id: f"{modes[mode_id].name} ({mode_id})",
     )
     selected_mode = modes[selected_mode_id]
-    st.caption(selected_mode.description)
+    st.markdown(
+        f"""<div class='mode-card'><b>{selected_mode.name}</b><br>
+        <span class='small-note'>{selected_mode.description}</span><br>
+        <span class='small-note'>Pipeline: {selected_mode.pipeline_type} · Tracker: {selected_mode.tracker} · Encoder: {selected_mode.encoder_backend}</span></div>""",
+        unsafe_allow_html=True,
+    )
 
     if selected_mode.pipeline_type == "football_analysis":
         st.info(
@@ -278,32 +431,190 @@ with st.sidebar:
         else:
             st.caption("Qdrant Memory speichert nur bis zum Neustart der App und ist nur für schnelle Tests sinnvoll.")
 
+    parameter_profile = st.selectbox(
+        "Parameter profile",
+        ["Standard/Video", "Kurzvideo adaptiv", "Langes Video stabil", "Kalibrierung Qualität"],
+        index=0,
+        help="Setzt sinnvolle Startwerte. Einzelne Regler können danach weiter angepasst werden.",
+    )
+
+    with st.expander("Kalibrierung im normalen Projekt", expanded=False):
+        st.caption(
+            "Kalibrierung baut ein Personenprofil aus hochwertigen Crops auf. "
+            "Sie ist nicht nur für Evaluation gedacht, sondern kann direkt in der normalen Pipeline genutzt werden."
+        )
+        calibration_ui_mode = st.radio(
+            "Kalibrierungsmodus",
+            ["Aus", "Neue Person kalibrieren", "Bestehende Person erweitern"],
+            index=0,
+            help="Neue Person: erstellt ein Startprofil. Bestehende Person: fügt hochwertige Embeddings zu einer vorhandenen person_id hinzu.",
+        )
+        calibration_label = st.text_input(
+            "Kalibrierungsnotiz/Label",
+            value="",
+            help="Optionaler Hinweis wie 'weißes Shirt Allaround' oder 'Brille Profilupdate'.",
+        )
+        available_person_ids: list[str] = []
+        try:
+            tmp_config = selected_mode.to_pipeline_config(
+                vector_store_backend=vector_store_backend,
+                qdrant_url=qdrant_url,
+                qdrant_api_key=selected_mode.qdrant_api_key,
+                qdrant_collection=qdrant_collection,
+                qdrant_mode=qdrant_mode,
+                qdrant_local_path=qdrant_local_path,
+                qdrant_prefer_grpc=bool(qdrant_prefer_grpc),
+            )
+            tmp_store = build_vector_store(tmp_config, paths)
+            available_person_ids = [p.person_id for p in tmp_store.list_persons()]
+            if hasattr(tmp_store, "close"):
+                tmp_store.close()
+        except Exception:
+            available_person_ids = []
+        calibration_target_person_id = ""
+        if calibration_ui_mode == "Bestehende Person erweitern":
+            if available_person_ids:
+                calibration_target_person_id = st.selectbox(
+                    "Zielperson",
+                    available_person_ids,
+                    help="Diese person_id wird mit hochwertigen Kalibrierungs-Crops erweitert.",
+                )
+            else:
+                st.warning("Noch keine gespeicherte Person vorhanden. Erst eine neue Person kalibrieren oder ein normales Video laufen lassen.")
+        st.info(
+            "Kalibrierung nutzt strengere Qualitätswerte: höhere Auflösung, größere Mindest-Crops und weniger Detail-Einfluss. "
+            "Das Profil wächst anschließend kontrolliert über die Three-Zone-Logik."
+        )
+
+    profile_values = {
+        "Standard/Video": {
+            "match_threshold": selected_mode.match_threshold,
+            "strong": selected_mode.strong_match_threshold,
+            "weak": selected_mode.weak_match_threshold,
+            "detection": selected_mode.detection_confidence,
+            "image_size": selected_mode.image_size,
+            "reid_every": selected_mode.reid_every_n_frames,
+            "min_good": selected_mode.min_good_frames_before_reid,
+            "min_embed": selected_mode.min_embedding_quality,
+            "min_update": selected_mode.min_update_quality,
+            "crop_h": selected_mode.min_crop_height,
+            "crop_w": selected_mode.min_crop_width,
+            "padding": selected_mode.crop_padding,
+            "detail_weight": selected_mode.detail_weight,
+            "detail_conf": selected_mode.detail_min_confidence,
+            "detail_enabled": selected_mode.enable_detail_analysis,
+        },
+        "Kurzvideo adaptiv": {
+            "match_threshold": 0.72, "strong": 0.80, "weak": 0.66, "detection": 0.35,
+            "image_size": 960, "reid_every": 3, "min_good": 3, "min_embed": 0.58, "min_update": 0.75,
+            "crop_h": 110, "crop_w": 40, "padding": 0.08, "detail_weight": 0.03, "detail_conf": 0.70, "detail_enabled": True,
+        },
+        "Langes Video stabil": {
+            "match_threshold": 0.76, "strong": 0.82, "weak": 0.68, "detection": 0.40,
+            "image_size": 960, "reid_every": 5, "min_good": 4, "min_embed": 0.60, "min_update": 0.78,
+            "crop_h": 120, "crop_w": 45, "padding": 0.08, "detail_weight": 0.05, "detail_conf": 0.70, "detail_enabled": True,
+        },
+        "Kalibrierung Qualität": {
+            "match_threshold": 0.78, "strong": 0.84, "weak": 0.70, "detection": selected_mode.calibration_detection_confidence,
+            "image_size": selected_mode.calibration_image_size, "reid_every": selected_mode.calibration_reid_every_n_frames,
+            "min_good": selected_mode.calibration_min_good_frames_before_reid, "min_embed": selected_mode.calibration_min_embedding_quality,
+            "min_update": selected_mode.calibration_min_update_quality, "crop_h": selected_mode.calibration_min_crop_height,
+            "crop_w": selected_mode.calibration_min_crop_width, "padding": selected_mode.calibration_crop_padding,
+            "detail_weight": 0.0, "detail_conf": 0.75, "detail_enabled": selected_mode.calibration_enable_detail_analysis,
+        },
+    }[parameter_profile]
+    if calibration_ui_mode != "Aus":
+        profile_values = {
+            "match_threshold": 0.78,
+            "strong": 0.84,
+            "weak": 0.70,
+            "detection": selected_mode.calibration_detection_confidence,
+            "image_size": selected_mode.calibration_image_size,
+            "reid_every": selected_mode.calibration_reid_every_n_frames,
+            "min_good": selected_mode.calibration_min_good_frames_before_reid,
+            "min_embed": selected_mode.calibration_min_embedding_quality,
+            "min_update": selected_mode.calibration_min_update_quality,
+            "crop_h": selected_mode.calibration_min_crop_height,
+            "crop_w": selected_mode.calibration_min_crop_width,
+            "padding": selected_mode.calibration_crop_padding,
+            "detail_weight": 0.0,
+            "detail_conf": 0.75,
+            "detail_enabled": selected_mode.calibration_enable_detail_analysis,
+        }
+
     match_threshold = st.slider(
         "Match threshold",
         min_value=0.30,
         max_value=0.99,
-        value=float(selected_mode.match_threshold),
+        value=float(profile_values["match_threshold"]),
         step=0.01,
     )
+    with st.expander("Three-zone ReID decision", expanded=True):
+        strong_match_threshold = st.slider(
+            "Strong match threshold",
+            min_value=0.50,
+            max_value=0.99,
+            value=float(profile_values["strong"]),
+            step=0.01,
+            help="Ab diesem Score wird eine bestehende Person sicher übernommen und darf wachsen.",
+        )
+        weak_match_threshold = st.slider(
+            "Weak/pending match threshold",
+            min_value=0.30,
+            max_value=0.95,
+            value=float(profile_values["weak"]),
+            step=0.01,
+            help="Ab diesem Score wird keine neue Person erzeugt, sondern ein unsicherer Kandidat gehalten.",
+        )
+        new_person_max_score = st.slider(
+            "New person max score",
+            min_value=0.20,
+            max_value=0.90,
+            value=float(selected_mode.new_person_max_score),
+            step=0.01,
+            help="Nur wenn Scores über mehrere Events höchstens in diesem Bereich liegen, darf eine neue Person entstehen.",
+        )
+        new_person_min_evidence_events = st.number_input(
+            "New person min evidence events",
+            min_value=1,
+            max_value=30,
+            value=int(selected_mode.new_person_min_evidence_events),
+            step=1,
+        )
+        new_person_evidence_window_frames = st.number_input(
+            "New person evidence window frames",
+            min_value=5,
+            max_value=300,
+            value=int(selected_mode.new_person_evidence_window_frames),
+            step=5,
+        )
+        new_person_low_match_ratio = st.slider(
+            "New person low-match ratio",
+            min_value=0.50,
+            max_value=1.00,
+            value=float(selected_mode.new_person_low_match_ratio),
+            step=0.05,
+        )
+
     detection_confidence = st.slider(
         "Detection confidence",
         min_value=0.10,
         max_value=0.90,
-        value=float(selected_mode.detection_confidence),
+        value=float(profile_values["detection"]),
         step=0.05,
     )
     reid_every_n_frames = st.number_input(
         "ReID every N frames",
         min_value=1,
         max_value=100,
-        value=int(selected_mode.reid_every_n_frames),
+        value=int(profile_values["reid_every"]),
         step=1,
     )
     min_good_frames_before_reid = st.number_input(
         "Min good frames before first ReID match",
         min_value=1,
         max_value=20,
-        value=int(selected_mode.min_good_frames_before_reid),
+        value=int(profile_values["min_good"]),
         step=1,
         help="Neue Tracks werden erst gespeichert oder gematcht, wenn genug hochwertige Crops gesammelt wurden.",
     )
@@ -311,7 +622,7 @@ with st.sidebar:
         "Min crop quality for ReID candidates",
         min_value=0.00,
         max_value=1.00,
-        value=float(selected_mode.min_embedding_quality),
+        value=float(profile_values["min_embed"]),
         step=0.05,
         help="Crops unter diesem Qualitätswert werden nicht encodiert und nicht als neue ReID-Kandidaten genutzt.",
     )
@@ -319,7 +630,7 @@ with st.sidebar:
         "Min crop quality for person embedding updates",
         min_value=0.00,
         max_value=1.00,
-        value=float(selected_mode.min_update_quality),
+        value=float(profile_values["min_update"]),
         step=0.05,
         help="Bestehende Personen-Embeddings werden nur mit Crops ab diesem Qualitätswert aktualisiert.",
     )
@@ -333,8 +644,19 @@ with st.sidebar:
     image_size = st.selectbox(
         "Image size",
         [320, 480, 640, 960, 1280],
-        index=option_index([320, 480, 640, 960, 1280], selected_mode.image_size, fallback=2),
+        index=option_index([320, 480, 640, 960, 1280], int(profile_values["image_size"]), fallback=3),
     )
+    with st.expander("Crop quality gate", expanded=False):
+        min_crop_height = st.number_input(
+            "Min crop height", min_value=40, max_value=600, value=int(profile_values["crop_h"]), step=10
+        )
+        min_crop_width = st.number_input(
+            "Min crop width", min_value=20, max_value=300, value=int(profile_values["crop_w"]), step=5
+        )
+        crop_padding = st.slider(
+            "Crop padding", min_value=0.00, max_value=0.25, value=float(profile_values["padding"]), step=0.01
+        )
+
     device = st.selectbox("Device", ["auto", "cpu", "cuda"], index=option_index(["auto", "cpu", "cuda"], selected_mode.device))
 
     st.divider()
@@ -378,6 +700,58 @@ with st.sidebar:
         disabled=not enable_motion_analysis,
         help="Glättung der Richtungspfeile. Höher = reagiert schneller, niedriger = ruhiger.",
     )
+
+    st.divider()
+    st.header("Detail Analysis")
+    enable_detail_analysis = st.checkbox(
+        "Enable detail recognition layer",
+        value=bool(profile_values["detail_enabled"]),
+        help="Extrahiert weiche Detail-Signale aus Person-Crops: Kopf, Oberkörper, Unterkörper, Kleidung, Farben, Accessoires und Muster. Details unterstützen OSNet nur als Re-Ranking-Signal.",
+    )
+    detail_weight = st.slider(
+        "Detail matching weight",
+        min_value=0.00,
+        max_value=0.35,
+        value=float(profile_values["detail_weight"]),
+        step=0.01,
+        disabled=not enable_detail_analysis,
+        help="Kleine Werte sind sicherer. Details sollen OSNet unterstützen, aber nicht ersetzen.",
+    )
+    detail_min_confidence = st.slider(
+        "Min detail confidence",
+        min_value=0.30,
+        max_value=0.90,
+        value=float(profile_values["detail_conf"]),
+        step=0.05,
+        disabled=not enable_detail_analysis,
+        help="Unterhalb dieses Werts wird ein Detail als unbekannt markiert.",
+    )
+    draw_detail_labels = st.checkbox(
+        "Draw detail labels",
+        value=bool(selected_mode.draw_detail_labels),
+        disabled=not enable_detail_analysis,
+        help="Zeigt erkannte Detailzustände direkt in der Bounding-Box-Beschriftung.",
+    )
+    with st.expander("Welche Details werden genutzt?"):
+        registry_rows = []
+        for group, specs in registry_groups_payload().items():
+            for spec in specs:
+                registry_rows.append(
+                    {
+                        "group": group,
+                        "detail": spec["label"],
+                        "technical_key": spec["name"],
+                        "kind": spec["kind"],
+                        "weight": spec["weight"],
+                        "volatile": spec["volatile"],
+                        "description": spec["description"],
+                    }
+                )
+        st.dataframe(pd.DataFrame(registry_rows), width="stretch", hide_index=True)
+        st.caption(
+            "Volatile Details wie Kappe, Kapuze, Uhr oder Aufdruck werden absichtlich niedriger/weicher gewichtet, "
+            "damit ein Wechsel dieser Details nicht automatisch die Person-ID zerstört."
+        )
 
     st.divider()
     st.header("Live Display")
@@ -518,6 +892,12 @@ if run_clicked and source is not None:
         qdrant_local_path=qdrant_local_path,
         qdrant_prefer_grpc=bool(qdrant_prefer_grpc),
         match_threshold=float(match_threshold),
+        strong_match_threshold=float(strong_match_threshold),
+        weak_match_threshold=float(weak_match_threshold),
+        new_person_max_score=float(new_person_max_score),
+        new_person_min_evidence_events=int(new_person_min_evidence_events),
+        new_person_evidence_window_frames=int(new_person_evidence_window_frames),
+        new_person_low_match_ratio=float(new_person_low_match_ratio),
         detection_confidence=float(detection_confidence),
         image_size=int(image_size),
         reid_every_n_frames=int(reid_every_n_frames),
@@ -525,6 +905,9 @@ if run_clicked and source is not None:
         min_embedding_quality=float(min_embedding_quality),
         min_update_quality=float(min_update_quality),
         max_frames=int(max_frames),
+        min_crop_height=int(min_crop_height),
+        min_crop_width=int(min_crop_width),
+        crop_padding=float(crop_padding),
         device=device,
         live_preview_every_n_frames=int(preview_every_n_frames),
         enable_motion_analysis=bool(enable_motion_analysis),
@@ -532,6 +915,13 @@ if run_clicked and source is not None:
         disable_internal_motion_when_botsort=bool(disable_internal_motion_when_botsort),
         motion_max_jump_fraction=float(motion_max_jump_fraction),
         motion_smoothing_alpha=float(motion_smoothing_alpha),
+        enable_detail_analysis=bool(enable_detail_analysis),
+        detail_weight=float(detail_weight),
+        detail_min_confidence=float(detail_min_confidence),
+        draw_detail_labels=bool(draw_detail_labels),
+        calibration_mode=("new_person" if calibration_ui_mode == "Neue Person kalibrieren" else "extend_person" if calibration_ui_mode == "Bestehende Person erweitern" else "off"),
+        calibration_target_person_id=str(calibration_target_person_id or ""),
+        calibration_label=str(calibration_label or ""),
     )
 
     progress = st.progress(0)
@@ -618,20 +1008,40 @@ except Exception as exc:
     events_df = pd.DataFrame()
     runs_df = pd.DataFrame()
 
-st.subheader("Analysis runs")
-if runs_df.empty:
-    st.info("No analysis runs stored yet.")
-else:
-    st.dataframe(runs_df, width="stretch")
+with st.expander("Analysis runs", expanded=True):
+    st.caption("Gespeicherte Verarbeitungsläufe. Quelle, FPS, Frame-Anzahl und Modus helfen, spätere Ergebnisse nachzuvollziehen.")
+    help_md("Analysis runs", "Jede Zeile entspricht einem Video- oder Webcam-Lauf. run_id verbindet den Lauf mit Events, Personenupdates und Output-Videos.")
+    if runs_df.empty:
+        st.info("No analysis runs stored yet.")
+    else:
+        run_cols = st.multiselect("Spalten Analysis runs", list(runs_df.columns), default=list(runs_df.columns), key="runs_cols")
+        st.dataframe(runs_df[run_cols] if run_cols else runs_df, width="stretch", hide_index=True)
 
-st.subheader("Stored synthetic persons")
-if persons_df.empty:
-    st.info("No persons stored yet.")
-else:
-    st.dataframe(persons_df, width="stretch")
+with st.expander("Stored synthetic persons", expanded=False):
+    st.caption("Langfristige globale Personenprofile. Beobachtungen zeigen, wie stark ein Profil bereits gewachsen ist.")
+    help_md("Stored synthetic persons", "person_id ist eine synthetische ID. observations zählt gespeicherte hochwertige Embedding-Updates. Viele Beobachtungen können die ReID stabilisieren, wenn die Updates korrekt zugeordnet wurden.")
+    if persons_df.empty:
+        st.info("No persons stored yet.")
+    else:
+        person_cols = st.multiselect("Spalten Personen", list(persons_df.columns), default=list(persons_df.columns), key="person_cols")
+        st.dataframe(persons_df[person_cols] if person_cols else persons_df, width="stretch", hide_index=True)
 
-st.subheader("Recent events")
-if events_df.empty:
-    st.info("No events stored yet.")
-else:
-    st.dataframe(events_df, width="stretch")
+with st.expander("Recent events", expanded=False):
+    st.caption("Frame-/Track-/ReID-Ereignisse. Diese Tabelle erklärt, warum Personen erstellt, gematcht oder nur als Pending behandelt wurden.")
+    help_md("Recent events", "Wichtige Felder: event_type beschreibt die Entscheidung; match_score ist der finale ReID-Score; decision_zone zeigt strong/weak/low/calibration; quality_score bewertet den Crop; top_matches enthält die besten Kandidaten.")
+    if events_df.empty:
+        st.info("No events stored yet.")
+    else:
+        event_cols_default = [c for c in ["event_id", "event_type", "person_id", "frame_index", "track_id", "score", "quality_score", "match_visual_score", "match_detail_score", "match_reason", "created_at"] if c in events_df.columns]
+        event_cols = st.multiselect("Spalten Events", list(events_df.columns), default=event_cols_default or list(events_df.columns), key="event_cols")
+        event_search = st.text_input("Event-Suche", value="", key="event_search")
+        event_view = events_df.copy()
+        if event_search:
+            mask = event_view.astype(str).apply(lambda row: row.str.contains(event_search, case=False, na=False).any(), axis=1)
+            event_view = event_view[mask]
+        st.dataframe(event_view[event_cols] if event_cols else event_view, width="stretch", hide_index=True)
+
+if selected_mode_id == "default":
+    st.divider()
+    render_evaluation_results(paths)
+    render_evaluation_runner(paths)

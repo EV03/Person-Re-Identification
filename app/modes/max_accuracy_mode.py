@@ -46,4 +46,8 @@ def build_max_accuracy_mode() -> ModeConfig:
         motion_max_jump_fraction=0.20,
         motion_smoothing_alpha=0.35,
         motion_min_displacement_px=2.0,
+        enable_detail_analysis=True,
+        detail_weight=0.15,
+        detail_min_confidence=0.55,
+        draw_detail_labels=True,
     )

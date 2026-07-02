@@ -17,3 +17,80 @@ data/qdrant/*
 !data/db/.gitkeep
 yolov8x.pt
 yolov8n.pt
+
+# Python
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Datenbanken
+data/db/*
+!data/db/.gitkeep
+*.sqlite
+*.sqlite3
+*.db
+*.sqlite-wal
+*.sqlite-shm
+*.db-wal
+*.db-shm
+
+# Evaluation / Test-Ausgaben
+data/evaluation_runs/
+data/output/
+data/snapshots/
+data/qdrant_local_max_accuracy/
+data/*.zip
+data/all_videos_summary.csv
+data/calibration_state.json
+data/run_config.json
+
+# Lokale Testdaten / Videos / Bilder
+Test-daten/
+test-daten/
+data/input/
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+
+# Model weights / große ML-Dateien
+*.pt
+*.pth
+*.onnx
+*.engine
+*.weights
+yolov8*.pt
+
+# Qdrant / Vector DB / Docker volumes
+qdrant_storage/
+data/qdrant/
+storage/
+
+# Logs
+*.log
+logs/
+
+# Keep folder placeholders
+!.gitkeep

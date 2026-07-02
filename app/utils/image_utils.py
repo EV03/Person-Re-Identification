@@ -165,6 +165,7 @@ def draw_detection(
     score: float | None,
     motion: MotionSnapshot | None = None,
     draw_motion: bool = False,
+    detail_label: str | None = None,
 ) -> None:
     x1, y1, x2, y2 = detection.bbox_xyxy
     label_parts = [f"track {detection.track_id}"]
@@ -177,6 +178,8 @@ def draw_detection(
         label_parts.append(f"dir {motion.direction_label}")
     if motion is not None and motion.is_large_jump:
         label_parts.append("jump")
+    if detail_label:
+        label_parts.append(detail_label)
     label = " | ".join(label_parts)
 
     color = (0, 80, 255) if motion is not None and motion.is_large_jump else (0, 220, 120)

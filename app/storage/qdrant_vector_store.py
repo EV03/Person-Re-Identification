@@ -9,6 +9,7 @@ import numpy as np
 from app.storage.models import MatchResult, Payload
 from app.storage.vector_store import SQLiteVectorStore
 from app.utils.id_utils import format_person_id, utc_now_iso
+from app.utils.detail_utils import combine_visual_and_detail_score, detail_similarity_breakdown
 from app.utils.image_utils import normalize_vector
 
 
@@ -249,19 +250,50 @@ class QdrantVectorStore:
         embedding: np.ndarray,
         threshold: float,
         exclude_person_ids: set[str] | None = None,
+        detail_vector: np.ndarray | list[float] | None = None,
+        detail_weight: float = 0.0,
     ) -> MatchResult | None:
         exclude_person_ids = exclude_person_ids or set()
         query = normalize_vector(embedding)
+        query_detail = None if detail_vector is None else np.asarray(detail_vector, dtype=np.float32).reshape(-1)
         points = self._query_points(query, limit=max(len(exclude_person_ids) + 5, 10))
 
+        best_person_id: str | None = None
+        best_score = -1.0
+        best_visual_score: float | None = None
+        best_detail_score: float | None = None
+        best_detail_breakdown: dict[str, object] = {}
         for point in points:
             payload = self._payload(point)
             person_id = str(payload.get("person_id", ""))
             if not person_id or person_id in exclude_person_ids:
                 continue
-            score = self._score(point)
-            if score >= threshold:
-                return MatchResult(person_id=person_id, score=score, is_new=False)
+            visual_score = self._score(point)
+            stored_detail = payload.get("detail_vector")
+            detail_breakdown = (
+                detail_similarity_breakdown(query_detail, stored_detail)
+                if query_detail is not None
+                else {"score": 0.5, "reason": "detail_disabled", "features": []}
+            )
+            detail_score = float(detail_breakdown.get("score", 0.5)) if query_detail is not None else None
+            score = combine_visual_and_detail_score(visual_score, detail_score, detail_weight)
+            if score > best_score:
+                best_person_id = person_id
+                best_score = score
+                best_visual_score = visual_score
+                best_detail_score = detail_score
+                best_detail_breakdown = detail_breakdown
+
+        if best_person_id is not None and best_score >= threshold:
+            return MatchResult(
+                person_id=best_person_id,
+                score=best_score,
+                is_new=False,
+                visual_score=best_visual_score,
+                detail_score=best_detail_score,
+                detail_weight=float(detail_weight),
+                detail_breakdown=best_detail_breakdown,
+            )
         return None
 
     def add_or_update_person(
@@ -281,6 +313,9 @@ class QdrantVectorStore:
         embedding = normalize_vector(embedding)
         embedding_weight = SQLiteVectorStore._embedding_weight_from_payload(payload)
         snapshot_quality = SQLiteVectorStore._snapshot_quality_from_payload(payload)
+        detail_vector = SQLiteVectorStore._detail_vector_from_payload(payload)
+        detail_weight = embedding_weight if detail_vector is not None else 0.0
+        detail_state = SQLiteVectorStore._detail_state_from_payload(payload)
         point_id = self._point_id(self.collection_name, person_id)
         existing_point = self._retrieve_person_point(person_id)
 
@@ -314,6 +349,28 @@ class QdrantVectorStore:
                 best_snapshot_path = snapshot_path
                 best_snapshot_quality = snapshot_quality
 
+        existing_detail_vector = None
+        existing_detail_weight_sum = 0.0
+        if existing_point is not None:
+            existing_payload = self._payload(existing_point)
+            raw_existing_detail = existing_payload.get("detail_vector")
+            if raw_existing_detail is not None:
+                try:
+                    existing_detail_vector = np.asarray(raw_existing_detail, dtype=np.float32).reshape(-1)
+                except (TypeError, ValueError):
+                    existing_detail_vector = None
+            existing_detail_weight_sum = float(existing_payload.get("detail_weight_sum", 0.0) or 0.0)
+
+        merged_detail_vector = existing_detail_vector
+        merged_detail_weight_sum = existing_detail_weight_sum
+        if detail_vector is not None:
+            if existing_detail_vector is not None and existing_detail_vector.shape == detail_vector.shape and existing_detail_weight_sum > 0:
+                merged_detail_weight_sum = existing_detail_weight_sum + detail_weight
+                merged_detail_vector = (existing_detail_vector * existing_detail_weight_sum + detail_vector * detail_weight) / max(merged_detail_weight_sum, 1e-6)
+            else:
+                merged_detail_vector = detail_vector
+                merged_detail_weight_sum = detail_weight
+
         self._ensure_collection(vector_size=int(mean_embedding.shape[0]))
         qdrant_payload = {
             "person_id": person_id,
@@ -329,6 +386,9 @@ class QdrantVectorStore:
             "last_score": score,
             "last_bbox_xyxy": list(bbox_xyxy),
             "last_event_payload": payload,
+            "detail_vector": merged_detail_vector.astype(float).tolist() if merged_detail_vector is not None else None,
+            "detail_state": detail_state or None,
+            "detail_weight_sum": float(merged_detail_weight_sum),
         }
         self.client.upsert(
             collection_name=self.collection_name,
