@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Protocol
 
 import cv2
 import numpy as np
@@ -33,6 +33,11 @@ from app.utils.image_utils import (
 
 ProgressCallback = Callable[[int, int | None, str], None]
 FrameCallback = Callable[[int, np.ndarray], None]
+
+
+class Releasable(Protocol):
+    def release(self) -> None:
+        ...
 
 
 @dataclass
@@ -156,9 +161,31 @@ class PersonReIdPipeline:
             RuntimeError: If the source cannot be opened.
         """
 
+        resources: list[Releasable] = []
         cap = self._open_capture(source)
-        if not cap.isOpened():
-            raise RuntimeError(f"Could not open video source: {source}")
+        resources.append(cap)
+        try:
+            if not cap.isOpened():
+                raise RuntimeError(f"Could not open video source: {source}")
+            return self._process_open_capture(
+                source,
+                cap,
+                resources,
+                progress_callback=progress_callback,
+                frame_callback=frame_callback,
+            )
+        finally:
+            for resource in reversed(resources):
+                resource.release()
+
+    def _process_open_capture(
+        self,
+        source: str | int | CameraSource,
+        cap: cv2.VideoCapture,
+        resources: list[Releasable],
+        progress_callback: ProgressCallback | None = None,
+        frame_callback: FrameCallback | None = None,
+    ) -> PipelineResult:
 
         total_frames_raw = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         total_frames = total_frames_raw if total_frames_raw > 0 else None
@@ -184,6 +211,9 @@ class PersonReIdPipeline:
             fps,
             (width, height),
         )
+        resources.append(writer)
+        if not writer.isOpened():
+            raise RuntimeError(f"Could not open output video writer: {output_path}")
 
         self.store.add_analysis_run(
             run_id=run_id,
@@ -244,13 +274,13 @@ class PersonReIdPipeline:
 
         # Hot path: read -> track -> quality gate -> encode/match -> draw/write.
         while True:
+            if self.config.max_frames > 0 and frame_index >= self.config.max_frames:
+                break
             ok, frame = cap.read()
             if not ok:
                 break
 
             frame_index += 1
-            if self.config.max_frames > 0 and frame_index > self.config.max_frames:
-                break
 
             detections = self.tracker.track_frame(frame)
             used_person_ids_this_frame: set[str] = set()
@@ -437,9 +467,6 @@ class PersonReIdPipeline:
                         f"detections: {len(detections)} | skipped low quality: {skipped_low_quality}"
                     ),
                 )
-
-        cap.release()
-        writer.release()
 
         if progress_callback:
             progress_callback(frame_index, total_for_progress, f"[{self.config.mode_id}] Finished")
