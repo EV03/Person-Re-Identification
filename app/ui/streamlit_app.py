@@ -30,7 +30,7 @@ from app.utils.camera_utils import (
     read_single_preview_frame,
     scan_local_cameras,
 )
-from app.utils.id_utils import ensure_unique_path
+from app.utils.upload_utils import persist_uploaded_video
 
 
 @st.cache_data(ttl=20, show_spinner=False)
@@ -341,11 +341,14 @@ selected_camera_source: CameraSource | None = None
 if input_type == "Video upload":
     uploaded_file = st.file_uploader("Upload a video", type=["mp4", "mov", "avi", "mkv"])
     if uploaded_file is not None:
-        input_path = ensure_unique_path(paths.input_dir / uploaded_file.name)
-        input_path.write_bytes(uploaded_file.getbuffer())
-        source = str(input_path)
-        st.subheader("Input video")
-        st.video(str(input_path))
+        try:
+            input_path = persist_uploaded_video(paths.input_dir, uploaded_file.name, uploaded_file.getbuffer())
+        except (OSError, ValueError) as exc:
+            st.error(f"Could not store uploaded video: {exc}")
+        else:
+            source = str(input_path)
+            st.subheader("Input video")
+            st.video(str(input_path))
 else:
     st.subheader("Local webcam")
     st.info(
