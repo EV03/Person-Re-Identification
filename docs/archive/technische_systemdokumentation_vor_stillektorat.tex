@@ -1,0 +1,367 @@
+% Workshop-Paper zum Masterprojekt (12 CP), Springer-LLNCS-Layout.
+% Dokumentierter Systemstand: 02.09.2026; Überarbeitung: 12.09.2026.
+% Evaluation geplant, Ergebnisse noch nicht erhoben.
+% TODO: Metadaten ersetzen und nach Durchführung die Ergebnistabellen füllen.
+\documentclass[runningheads]{llncs}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english,ngerman]{babel}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{xurl}
+\usepackage{microtype}
+
+\newcommand{\systemname}{Local Person Re-Identification MVP}
+\newcommand{\todoentry}[1]{\textcolor{red!70!black}{[#1]}}
+\newcommand{\evalpending}{\textit{n.\,e.}}
+
+\begin{document}
+
+\title{Lokale Person-Re-Identifikation mit qualitätsgefilterten Embeddings}
+\titlerunning{Lokale Person-Re-Identifikation}
+
+% TODO: Autorinnen und Autoren sowie Hochschulangaben ergänzen.
+\author{\todoentry{Vorname Nachname}}
+\authorrunning{\todoentry{Nachname}}
+\institute{\todoentry{Hochschule für angewandte Wissenschaften}\\
+\todoentry{Fakultät / Masterstudiengang / Modul}\\
+\email{\todoentry{hochschul-email@example.org}}}
+
+\maketitle
+
+\begin{abstract}
+Im Rahmen eines Masterprojekts wird ein lokal ausführbarer Prototyp zur Wiedererkennung von Personen in Videos und Kameraaufnahmen entwickelt. Das System verbindet die Personendetektion durch YOLO mit kurzfristigem Tracking und einer persistenten Zuordnung zu synthetischen IDs. Als Merkmalsextraktor wird OSNet eingesetzt; ein Farbhistogramm-Encoder dient als einfache Vergleichsvariante. Eine Qualitätsbewertung der Personenausschnitte und die Zusammenführung mehrerer Beobachtungen sollen ungeeignete Bilder aus der Identitätsbildung heraushalten. Profile und Ereignisse werden in SQLite gespeichert, eine Streamlit-Oberfläche ermöglicht Konfiguration und visuelle Prüfung. Der Projektbeitrag liegt in der Integration dieser Komponenten und der Gestaltung einer nachvollziehbaren Verarbeitungskette. Zur Bewertung ist eine szenariobasierte Evaluation mit vier freiwillig teilnehmenden Personen vorgesehen. Sie umfasst unter anderem mehrere gleichzeitig sichtbare Personen, Wiedereintritt, ähnliche Kleidung, Verdeckungen und Bewegung. Ein externer Videodatensatz ergänzt die kontrollierten Aufnahmen. Bewertet werden Erfassung, Identitätskontinuität, Wiedererkennung und Verarbeitungsgeschwindigkeit. Die Evaluation steht noch aus; das Dokument beschreibt den Versuchsplan und enthält Platzhalter für die späteren Ergebnisse. Abschlie{\ss}end werden die Grenzen der Umsetzung und Anforderungen an den Umgang mit den Aufnahmen diskutiert. Die Darstellung konzentriert sich auf den im Projekt umgesetzten Funktionsumfang und dessen praktische Überprüfbarkeit.
+\keywords{Person ReID \and Computer Vision \and Tracking \and OSNet}
+\end{abstract}
+
+\section{Einleitung und Projektziel}
+
+Eine Person in einem Video zu erkennen und dieselbe Person nach einer Unterbrechung wiederzufinden sind unterschiedliche Aufgaben. Die Detektion bestimmt zunächst, wo sich Personen befinden. Ein Tracker verknüpft ihre Positionen über aufeinanderfolgende Frames. Verlässt eine Person das Sichtfeld oder geht ihre Spur durch eine Verdeckung verloren, muss eine zusätzliche Re-Identifikation entscheiden, ob sie bereits bekannt ist. Diese Verbindung ist für praktische Videoanalyse interessant, beispielsweise bei der Untersuchung von Bewegungsabläufen in kontrollierten Umgebungen.
+
+Das Masterprojekt \systemname{} verfolgt das Ziel, eine solche Verarbeitungskette lokal und mit überschaubarem Einrichtungsaufwand umzusetzen. Das System verarbeitet Videos oder eine Webcam, zeigt erkannte Personen an und speichert wiederverwendbare Kennungen wie \path{person_000001}. Klarnamen werden weder für die Zuordnung benötigt noch in der Anwendung ausgegeben. Eine Kennung bezeichnet ein vom System gebildetes visuelles Profil und keine festgestellte bürgerliche Identität.
+
+Im Mittelpunkt steht folgende Projektfrage: Wie lässt sich eine lokale Videoanalyse aufbauen, die Personen verfolgt, nach Unterbrechungen wiedererkennt und die Qualität ihrer gespeicherten Merkmale berücksichtigt? Der Beitrag des 12-CP-Projekts liegt in der Auswahl und Integration vorhandener Verfahren, der Qualitätskontrolle ihrer Eingangsdaten und einer nachvollziehbaren Überprüfung des Gesamtsystems. Die Bewertung erfolgt als anwendungsbezogene Fallstudie.
+
+Die Anforderungen ergeben sich unmittelbar aus diesem Ziel: Video- und Kameraeingabe, Mehrpersonenverarbeitung, persistente synthetische IDs, eine visuelle Ergebniskontrolle und lokal gespeicherte Beobachtungen. Die Komponenten sollen über Konfiguration vergleichbar und austauschbar sein. Die Anwendung ist für einen kontrollierten Einzelplatzbetrieb ausgelegt. Gleichzeitiger Mehrkamerabetrieb, Gesichtserkennung und produktive Personenüberwachung gehören nicht zum Projektumfang.
+
+Dieses Dokument beschreibt den Systemstand vom 2.~September~2026 und den am 12.~September~2026 überarbeiteten Evaluationsplan. Eine quantitative Evaluation wurde bislang nicht durchgeführt. Nachfolgend werden zunächst die wesentlichen Verfahren und Entwurfsentscheidungen erläutert, anschlie{\ss}end Umsetzung, Versuchsplan und Grenzen des Projekts.
+
+\section{Verfahren und Systementwurf}
+\label{sec:design}
+
+\subsection{Detektion, Tracking und Re-Identifikation}
+
+Die Anwendung folgt dem Prinzip Tracking-by-Detection. YOLO liefert Bounding Boxes für die Klasse Person; der Tracker verknüpft die Beobachtungen zu Spuren mit einer \path{track_id}. Standardmä{\ss}ig wird ByteTrack verwendet, das auch Detektionen niedriger Konfidenz in seine Assoziation einbezieht~\cite{zhang2022bytetrack}. BoT-SORT ist als Alternative verfügbar und ergänzt unter anderem Kamerabewegungskompensation sowie optional Erscheinungsmerkmale~\cite{aharon2022botsort}. Die Einbindung erfolgt über den Tracking-Modus von Ultralytics~\cite{ultralytics-track}.
+
+Eine \path{track_id} dient der kurzfristigen Kontinuität innerhalb einer Sequenz. Die Anwendung verwaltet zusätzlich eine persistente \path{person_id}. Diese Trennung ermöglicht, eine neue Spur einem früher gespeicherten Personenprofil zuzuordnen. Das anwendungsseitige ReID-Modul ist dabei von einer optionalen internen Appearance-Unterstützung des Trackers zu unterscheiden: Seine Merkmale werden für den Datenbankabgleich eingesetzt.
+
+OSNet wurde für Person-ReID entwickelt und kombiniert visuelle Merkmale verschiedener räumlicher Skalen~\cite{zhou2019osnet}. Im Projekt wird \path{osnet_x1_0} über Torchreid eingebunden. Es erzeugt pro Personenausschnitt einen 512-dimensionalen Vektor. Als einfache Vergleichsvariante steht ein HSV-Farbhistogramm mit 32 Dimensionen zur Verfügung. Es bildet vorwiegend die Farbverteilung ab und ist daher insbesondere bei ähnlicher Kleidung nur eingeschränkt trennscharf.
+
+Die Embeddings werden auf die euklidische Länge eins normalisiert. Für zwei normalisierte Merkmalsvektoren $z_q$ und $z_p$ entspricht die Cosine Similarity ihrem Skalarprodukt:
+\begin{equation}
+s(z_q,z_p)=z_q^\top z_p.
+\label{eq:cosine}
+\end{equation}
+Die Anwendung wählt das ähnlichste zulässige Profil und akzeptiert es ab dem Schwellwert $\tau$. Liegt kein Treffer vor, wird eine neue Personen-ID angelegt. Der Standardwert $\tau=0{,}82$ ist eine Ausgangskonfiguration und noch kein durch Messungen begründeter optimaler Wert.
+
+\subsection{Architektur und Entwurfsentscheidungen}
+
+Abbildung~\ref{fig:architecture} zeigt den Hauptpfad. Die Verarbeitung läuft frameweise in einem Python-Prozess. Streamlit übernimmt die Bedienung, OpenCV das Einlesen und die Videoausgabe. Der Orchestrator verbindet Detektor, Tracker, Encoder und Datenhaltung. Diese Aufteilung hält die Modellanbindung von der eigentlichen Zuordnungslogik getrennt.
+
+\begin{figure}[tbp]
+\centering
+\fbox{\begin{minipage}{0.91\linewidth}
+\centering
+\small
+Video / Webcam $\longrightarrow$ YOLO $\longrightarrow$ Tracking\\[2mm]
+$\downarrow$\\[-1mm]
+Personenausschnitt $\longrightarrow$ Qualitätsprüfung $\longrightarrow$ Encoder\\[2mm]
+$\downarrow$\\[-1mm]
+Profilabgleich $\longleftrightarrow$ SQLite\\[2mm]
+$\downarrow$\\[-1mm]
+Synthetische ID, Live-Vorschau und Ausgabevideo
+\end{minipage}}
+\caption{Verarbeitungskette des lokalen Prototyps.}
+\label{fig:architecture}
+\end{figure}
+
+Für den Prototyp wurde SQLite gewählt, weil dadurch kein zusätzlicher Datenbankdienst erforderlich ist. Die Ähnlichkeitssuche wird in Python über die gespeicherten Profile durchgeführt. Das ist bei kleinen Beständen einfach nachvollziehbar, erfordert aber einen Vergleich mit jedem Profil. Eine spezialisierte Vektordatenbank wäre erst bei grö{\ss}erem Datenvolumen oder höheren Parallelitätsanforderungen zu untersuchen.
+
+Die lokale Ausführung erleichtert kontrollierte Versuche und die Verwaltung der Aufnahmen. Sie bedeutet nicht automatisch einen vollständig netzwerkisolierten Betrieb: Abhängigkeiten und Modellgewichte müssen zunächst bereitgestellt werden. Für wiederholbare Messungen werden deshalb die tatsächlich eingesetzten Versionen und Gewichte festgehalten.
+
+\subsection{Qualitätsprüfung und Bildung eines Personenprofils}
+
+Ein erster Personenausschnitt kann unscharf, teilweise abgeschnitten oder sehr klein sein. Wird daraus sofort ein Profil angelegt, kann diese ungünstige Beobachtung spätere Entscheidungen beeinflussen. Die Anwendung bewertet deshalb vor dem Encoding die Schärfe, Helligkeit, Grö{\ss}e, das Seitenverhältnis, den Randkontakt und die Detektionskonfidenz. Die Teilwerte ergeben einen gewichteten Qualitätswert $Q$ zwischen null und eins. Grö{\ss}e und Schärfe erhalten jeweils ein Gewicht von 0,25, Helligkeit und Seitenverhältnis jeweils 0,15, Randkontakt und Konfidenz jeweils 0,10.
+
+Geometrisch ungültige oder zu kleine Ausschnitte werden verworfen. Ab einer Qualität von 0,55 wird ein Ausschnitt als ReID-Kandidat akzeptiert. Für die erste Zuweisung sammelt die Anwendung standardmä{\ss}ig drei akzeptierte Beobachtungen derselben Spur. Deren normalisierte Embeddings $z_i$ werden mit ihren Qualitätswerten zusammengeführt:
+\begin{equation}
+\bar z=\operatorname{norm}\left(
+\frac{\sum_i Q_i z_i}{\sum_i Q_i}\right).
+\label{eq:fusion}
+\end{equation}
+Das kombinierte Embedding wird mit den vorhandenen Profilen verglichen. Der qualitativ beste Ausschnitt dient als Snapshot. Die Gewichte und Schwellen sind bewusst einfache, nachvollziehbare Heuristiken; ihr Nutzen soll in der Evaluation geprüft werden.
+
+Die zugewiesene Personenkennung bleibt für die jeweilige Spur bestehen. Für bekannte Tracks werden standardmä{\ss}ig alle fünf Frames neue Merkmale geprüft. Eine Profilaktualisierung erfolgt nur ab $Q=0{,}65$ und geht qualitätsgewichtet in das gespeicherte Profil ein. Diese periodischen Updates sind kein erneuter globaler Identitätsabgleich. Eine neue ReID-Entscheidung wird insbesondere bei einer neuen Track-ID relevant.
+
+Die Trennung zwischen einer niedrigeren Kandidatenschwelle und einer höheren Aktualisierungsschwelle soll genügend Erstbeobachtungen zulassen und zugleich bestehende Profile schützen. Daraus ergibt sich ein praktischer Zielkonflikt: Strengere Anforderungen können die Profilqualität verbessern, aber auch die Zuordnung verzögern oder ganz verhindern. Deshalb misst die Evaluation neben Fehlern auch ausbleibende Entscheidungen.
+
+\subsection{Bewegung als ergänzendes Diagnosesignal}
+
+Zusätzlich berechnet das System aus den Mittelpunkten der Bounding Boxes Bewegungsrichtung, Pixelgeschwindigkeit und auffällige Positionssprünge. Eine geglättete Richtung kann als Pfeil angezeigt werden; gro{\ss}e Sprünge werden visuell markiert und als Warnung protokolliert. Diese Informationen unterstützen die manuelle Untersuchung von Kreuzungen, Track-Wechseln und Kameraschnitten.
+
+Die Bewegungsanalyse beeinflusst den ReID-Abgleich derzeit nicht. Au{\ss}erdem sind die gemessenen Geschwindigkeiten Bildraumgrö{\ss}en: Ohne Kamerakalibrierung und Abbildung auf reale Koordinaten lassen sie sich nicht als Meter pro Sekunde interpretieren. Für die Evaluation werden die Markierungen daher als Hinweise auf problematische Szenen und nicht als eigenständiger Identitätsnachweis verwendet.
+
+\section{Umsetzung und erreichter Projektstand}
+\label{sec:implementation}
+
+\subsection{Bedienung und Konfiguration}
+
+Die Streamlit-Oberfläche stellt Video-Upload, Auswahl einer lokalen Kamera, ein Kameratestbild und eine annotierte Live-Vorschau bereit. Ein Durchlauf liefert au{\ss}erdem ein Ausgabevideo und Tabellen zu Personen, Ereignissen und Analyse-Läufen. Die lokale Webcam wird auf dem Rechner geöffnet, auf dem die Anwendung läuft. Eine über einen entfernten Browser aufgerufene Oberfläche greift dadurch nicht automatisch auf dessen Kamera zu.
+
+Die wesentlichen Referenzparameter sind in Tabelle~\ref{tab:defaults} aufgeführt. Modell, Tracker, Encoder, Schwellwerte und Verarbeitungsintervalle lassen sich für Versuche anpassen. Ergänzend existiert ein Kommandozeileneinstieg für die Verarbeitung von Videodateien. Betriebsanweisungen und Einzelheiten zu Dateien und Installation verbleiben in der Repository-Dokumentation.
+
+\begin{table}[tbp]
+\caption{Ausgangskonfiguration für die Projektversuche.}
+\label{tab:defaults}
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}Xl@{}}
+\toprule
+Parameter & Referenzwert \\
+\midrule
+Detektionsmodell / Tracker & YOLOv8n / ByteTrack \\
+ReID-Encoder & OSNet, 512 Dimensionen \\
+Cosine-Schwellwert / Detektionskonfidenz & 0,82 / 0,35 \\
+Eingangsgrö{\ss}e für YOLO & 640 Pixel \\
+ReID-Intervall / gute Initialbeobachtungen & 5 Frames / 3 \\
+Qualität für Kandidaten / Updates & 0,55 / 0,65 \\
+Minimale Crop-Grö{\ss}e & $30\times80$ Pixel \\
+Live-Vorschau & jedes 10. Frame \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Datenhaltung und Erweiterbarkeit}
+
+Die Datenhaltung besteht im Hauptpfad aus drei Bereichen: Personenprofile enthalten das normalisierte Profil-Embedding, Beobachtungszahl, Zeitpunkte und den Verweis auf einen Snapshot. Ereignisse dokumentieren ausgewählte Zuordnungen und Updates einschlie{\ss}lich Quelle, Frame, Track und Qualitätsinformationen. Analyse-Läufe erfassen Quelle, Modus und wesentliche Konfigurationswerte. Video- und Snapshot-Dateien liegen au{\ss}erhalb der Datenbank im lokalen Dateisystem.
+
+Die Datenbank kann Profile über mehrere Durchläufe hinweg erhalten. Dadurch lässt sich eine Person in einem späteren Video erneut mit dem bestehenden Bestand vergleichen. Encoder mit unterschiedlichen Dimensionen können dabei nicht direkt verglichen werden. Die Implementierung überspringt inkompatible Profile; für faire Vergleichsversuche wird dennoch jeweils eine eigene Datenbank aus denselben Registrierungsbildern aufgebaut.
+
+Ein Modus-System bündelt Konfigurationen und unterstützt benutzerdefinierte Presets. Ein Fu{\ss}ballmodus sowie Module für Teamfarbe, Ball, Spielfeldabbildung und Statistiken sind vorbereitet. Im dokumentierten Stand verwendet dieser Modus jedoch weiterhin den generischen ReID-Hauptpfad. Er liefert noch keine vollständige Fu{\ss}ballanalyse und gehört nicht zum Kern der vorgesehenen Evaluation.
+
+\subsection{Einordnung des Implementierungsstands}
+
+Der Projektstand enthält den vollständigen Verarbeitungsweg von der lokalen Quelle bis zur synthetischen ID und visuellen Ausgabe. Die ursprüngliche technische Vorprüfung umfasste die syntaktische Kompilierung der Python-Dateien und den Import der Kernabhängigkeiten. Daraus folgt weder eine gemessene Erkennungsqualität noch eine nachgewiesene Echtzeitfähigkeit.
+
+Für die Evaluation fehlt insbesondere ein vollständiger Export der Vorhersagen pro Frame. Die bisherigen Ereignisse entstehen nur bei ausgewählten Matches und Updates. Die Gesamtzahl neuer Profile oder angezeigter Matches kann daher keine Genauigkeitsmetrik ersetzen. Diese Messschnittstelle ist vor Beginn der quantitativen Auswertung zu ergänzen.
+
+\section{Evaluation}
+\label{sec:evaluation}
+
+Die geplante Evaluation prüft, ob der Prototyp seine praktischen Projektziele erreicht. Im Mittelpunkt stehen drei Fragen: Bleiben mehrere Personen während einer Sequenz unterscheidbar? Erhalten bekannte Personen nach einer Unterbrechung ihre vorherige ID? Wie beeinflussen schwierige Situationen und die Qualitätsfilterung das Ergebnis? Die Verarbeitungsgeschwindigkeit ergänzt diese Qualitätsbetrachtung. Alle nachfolgenden Angaben beschreiben den Versuchsplan; Ergebnisse liegen noch nicht vor.
+
+\subsection{Versuchsaufbau und Szenarien}
+
+Für die Eigenaufnahmen sind vier freiwillig teilnehmende Personen vorgesehen: die Projektmitglieder sowie gegebenenfalls ein bis zwei weitere Personen mit dokumentiertem Einverständnis. Aufgenommen wird in einem kontrollierten Raum mit fest positionierter Kamera. Eine Referenzbedingung verwendet konstantes Licht, freie Sicht und gut unterscheidbare Kleidung. Kameraposition, Auflösung, Bildrate und Laufwege werden festgehalten.
+
+Tabelle~\ref{tab:use-cases} bündelt die vorgesehenen Szenarien. Die acht mit K markierten Fälle bilden den Kern der Eigenaufnahmen. Die übrigen Eigenaufnahmen dienen ergänzenden Robustheits- und Grenztests; ein externer Clip ergänzt den Bestand. Die Nummern entsprechen dem bestehenden Use-Case-Katalog. Damit bleiben alle vorgeschlagenen Situationen zuordenbar, ohne jeden Einflussfaktor in einer umfangreichen Kombination sämtlicher Varianten zu untersuchen.
+
+\begin{table}[tbp]
+\caption{Versuchsszenarien. K: Kernversuch; E: ergänzender Test.}
+\label{tab:use-cases}
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}lp{0.29\linewidth}X@{}}
+\toprule
+ID & Szenario & Schwerpunkt \\
+\midrule
+UC-01 K & Einzelperson & Baseline bei freier Sicht. \\
+UC-02 K & Mehrere Personen & Zwei und vier Personen gleichzeitig. \\
+UC-03 K & Verlassen und Rückkehr & Bisherige Personen-ID nach Abwesenheit. \\
+UC-04 K & Ähnliche Kleidung & Verwechslungen bei ähnlichen Farben. \\
+UC-05 K & Kreuzung / Verdeckung & ID-Wechsel und unterbrochene Spuren. \\
+UC-06 K & Bewegung & Stillstand, Gehen, Richtungswechsel. \\
+UC-07 E & Entfernung / Ansicht & Nah, fern sowie Vorder- und Rückenansicht. \\
+UC-08 E & Beleuchtung & Normales Licht und erschwerte Beleuchtung. \\
+UC-09 E & Teilverdeckung & Sichtbehinderung durch Möbel oder Türrahmen. \\
+UC-10 K & Unbekannte Person & Neue ID bei erstmaligem Eintritt. \\
+UC-11 K & Leerer Raum & Falsche Detektionen und Phantomprofile. \\
+UC-12 E & Neuer Programmlauf & Video-Paar mit gemeinsamer Datenbank. \\
+UC-13 E & Kleidungsänderung & Rückkehr mit verändertem Erscheinungsbild. \\
+UC-14 E & Externes Video & Übertragbarkeit auf eine andere Szene. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Für jeden Kernfall sind drei getrennte Aufnahmen von etwa 30 bis 60 Sekunden geplant. Der endgültige Umfang der ergänzenden Tests wird vor der Auswertung festgelegt und anschlie{\ss}end vollständig berichtet. Zwischen Wiederholungen wechseln Laufreihenfolge und Rollen der Personen. Bei UC-10 werden zunächst drei Personen registriert, bevor die vierte erstmals erscheint. Wiederholte Verarbeitung desselben Videos zählt nicht als zusätzliche unabhängige Aufnahme.
+
+Bei UC-03 muss mindestens eine Abwesenheit die Aufbewahrungsdauer verlorener Tracks überschreiten. Bleibt die ursprüngliche Track-ID erhalten, kann die Anwendung die vorhandene Zuordnung fortführen, ohne erneut Merkmale abzugleichen. Deshalb werden Rückkehr mit altem und mit neuem Track getrennt protokolliert. UC-12 prüft ergänzend die Wiedererkennung mit neu gestartetem Prozess und bestehender Versuchsdatenbank.
+
+Für UC-14 ist eine vorab ausgewählte MOT17-Sequenz mit zugänglichen Referenzannotationen vorgesehen~\cite{mot17-data}. Eine Sequenz aus dem veröffentlichten Trainingsbestand kann dabei als externer Testclip dienen, sofern sie im Projekt nicht zur Abstimmung verwendet wird. Die Bildsequenz wird nur einmal gezählt, auch wenn der Datensatz sie mit mehreren Detektorvarianten anbietet. Herkunft und Nutzungsbedingungen werden dokumentiert. Das Ergebnis wird getrennt von den Eigenaufnahmen dargestellt.
+
+\subsection{Referenzdaten und reproduzierbarer Ablauf}
+
+Die tatsächlichen Personen erhalten ausschlie{\ss}lich für die Annotation die Codes \path{GT_01} bis \path{GT_04}. Diese Referenz enthält pro auszuwertendem Frame die Personenkennung, Bounding Box und Sichtbarkeit sowie die Zeitpunkte von Ein- und Austritten. Bei vollständiger Verdeckung oder Verlassen des Sichtfelds entfällt die auszuwertende Box; die Referenzidentität bleibt bei der Rückkehr bestehen. Schwierige Übergänge werden durch ein zweites Projektmitglied geprüft. Ausschlüsse wegen tatsächlich uneindeutiger Sichtbarkeit werden vor der Betrachtung der Vorhersagen festgelegt und ausgewiesen.
+
+Der Export der Systemausgabe umfasst Frameindex, Box sowie die Kennungen für Track und Person. Auch fehlende Zuweisungen werden erfasst. Bei jedem Profilabgleich wird der tatsächliche Entscheidungsframe benötigt. Das gespeicherte Bild des besten Ausschnitts kann wegen der Initialpufferung früher liegen. Für IDF1 müssen zusammenhängende Sequenzen annotiert und exportiert sein. Eine Bewertung nur ausgewählter Standbilder reicht für diese zeitliche Metrik nicht aus.
+
+Separate Pilotclips dienen zur Prüfung des Ablaufs und zur Festlegung der Parameter. Die abschlie{\ss}enden Testclips bleiben davon getrennt; benachbarte Frames derselben Aufnahme werden nicht auf beide Mengen verteilt. Für jeden unabhängigen Versuch wird ein neuer Tracker und eine leere Versuchsdatenbank verwendet. Innerhalb eines Rückkehrtests bleibt die Datenbank erhalten. UC-12 bildet mit seinen beiden Videos eine gemeinsame Versuchseinheit.
+
+Modellgewichte, Paketversionen, Tracker-Konfiguration und Hardware werden vor der Evaluation festgehalten. Die Framebegrenzung wird so gesetzt, dass alle Testclips vollständig verarbeitet werden. Bei den Vergleichen werden dieselben Videos unter denselben Bedingungen verwendet. Änderungen an Parametern nach Sichtung der Testergebnisse werden als neue, getrennte Untersuchung ausgewiesen.
+
+\subsection{Ausgewählte Metriken}
+
+\subsubsection{Erfassung und Tracking.}
+Für Precision und Recall werden Vorhersagen je Frame eindeutig Referenzboxen mit mindestens 0,5 Intersection over Union zugeordnet. Eine korrekte Zuordnung zählt als True Positive (TP), eine übrige Vorhersage als False Positive (FP) und eine übrige Referenzbox als False Negative (FN):
+\begin{equation}
+P=\frac{TP}{TP+FP},\qquad
+R=\frac{TP}{TP+FN},\qquad
+F_1=\frac{2TP}{2TP+FP+FN}.
+\label{eq:detection-metrics}
+\end{equation}
+Für die zeitliche Identitätskontinuität werden IDF1 und die Anzahl der ID-Switches verwendet. IDF1 bewertet die Übereinstimmung vorhergesagter und tatsächlicher Identitätstrajektorien~\cite{ristani2016identity}; ID-Switches erfassen Wechsel der Track-Zuordnung. Die Berechnung übernimmt TrackEval in einer festgehaltenen Version~\cite{trackeval}. Diese Werte beziehen sich auf die Kennungen des Trackers und werden gemeinsam mit den Ergebnissen der ReID interpretiert.
+
+Für einen isolierten Detektortest müssten die Vorhersagen vor der Track-Zuordnung ausgegeben werden. Wird ausschlie{\ss}lich der bisherige Adapter für das Tracking ausgewertet, werden Precision und Recall ausdrücklich als Werte der kombinierten Erfassung berichtet. Der leere Raum hat keinen definierten Personen-Recall; hier werden falsche Detektionen und neue Phantomprofile pro Minute gezählt.
+
+\subsubsection{Wiedererkennung.}
+Bei einer Rückkehr zählt die erste ausgegebene Personen-ID innerhalb von zwei Sekunden nach dem ersten wieder sichtbaren Frame. Die Person muss in diesem Fenster auswertbar sichtbar bleiben. Die ursprüngliche ID wird anhand der vorherigen Registrierungsphase festgelegt. Unterschieden werden eine korrekte alte ID, die falsche ID einer anderen Person, eine neu angelegte ID und eine ausbleibende Entscheidung. Spätere Korrekturen werden zusätzlich beschrieben.
+
+Die Rückkehr-Erfolgsrate lautet:
+\begin{equation}
+R_{\mathrm{return}}=
+\frac{\text{rechtzeitig korrekt wiedererkannte Rückkehrereignisse}}
+{\text{alle auswertbaren Rückkehrereignisse}}.
+\label{eq:reentry}
+\end{equation}
+Bereits fehlgeschlagene Erstregistrierungen bleiben in dieser Gesamtbetrachtung als Misserfolg enthalten. Ergänzend wird die Rate für zuvor korrekt registrierte Personen angegeben, um die eigentliche Wiedererkennung einordnen zu können. Bei unbekannten Eintritten zählt eine neue, nicht bereits belegte ID als korrekt.
+
+Falsche Zusammenführungen, zusätzliche IDs für dieselbe Person und fehlende Zuweisungen werden mit ihren jeweiligen Ereigniszahlen berichtet. Damit werden beide Fehlerseiten sichtbar: Ein niedriger Match-Schwellwert kann Personen vermischen, ein hoher Wert kann dieselbe Person auf mehrere Profile aufteilen. Die Zeit bis zur Entscheidung ergänzt die Erfolgsrate. Ausbleibende Entscheidungen werden als eigene Kategorie beibehalten und nicht aus der Bewertung entfernt.
+
+\subsubsection{Verarbeitungsgeschwindigkeit.}
+Erfasst werden die tatsächlich verarbeiteten Frames pro Sekunde und der Real-Time-Faktor, also Verarbeitungsdauer geteilt durch Videodauer. Modellladezeit wird separat angegeben. Die Messung umfasst das Einlesen, die Modelle, Persistenz und Videoausgabe; die Live-Vorschau wird innerhalb eines Vergleichs identisch eingestellt. Die Verzögerung bis zur ID-Zuweisung wird in Videozeit gemessen und von der Rechenzeit unterschieden. Drei technische Wiederholungen je Konfiguration dienen zur Einschätzung der Laufzeitschwankungen.
+
+\subsection{Komponentenvergleich und Auswertung}
+
+Der Kernvergleich umfasst die Standardkonfiguration B0 sowie zwei Varianten: A1 verwendet das Farbhistogramm anstelle von OSNet; A2 setzt beide Qualitätsschwellen auf null. Bei A2 bleiben Mindestgrö{\ss}en, Qualitätsgewichtung und Snapshot-Auswahl erhalten. Untersucht wird daher der Beitrag der Annahmegrenzen. Diese beiden Vergleiche beziehen sich unmittelbar auf die Merkmalsextraktion und die im Projekt ergänzte Qualitätskontrolle.
+
+Ein Wechsel zu BoT-SORT, ein einzelnes Initialframe oder weitere Schwellwerte sind optionale Vertiefungen. Sie werden jeweils einzeln verändert und nur aufgenommen, wenn sie eine konkrete offene Frage aus den Kernversuchen beantworten. Dadurch bleibt der Versuchsumfang für das Masterprojekt überschaubar. Die Datenbank wird für jeden Encoder neu aus denselben Registrierungsbildern aufgebaut.
+
+Für die Encoder wird zunächst derselbe Referenzschwellwert verwendet. Da ihre Ähnlichkeitsskalen unterschiedlich ausfallen können, ist dies ein Vergleich bei gleicher Einstellung. Wird ergänzend kalibriert, erfolgt dies ausschlie{\ss}lich auf Pilotdaten; die gewählte Einstellung wird vor dem Test festgehalten. Ein niedrigerer Fehleranteil wird au{\ss}erdem stets zusammen mit der Zahl ausbleibender Entscheidungen und der Zuweisungszeit betrachtet.
+
+Die Auswertung erfolgt pro Clip und Szenario. Neben Mittelwert und Streuung über getrennte Aufnahmen werden Ereignisse als Zähler und Nenner angegeben. Komponenten werden paarweise auf denselben Clips verglichen. Wiederholte Frames derselben Person sind keine unabhängigen Versuchspersonen; die kleine Stichprobe wird deshalb deskriptiv ausgewertet. Der externe Clip erhält eine eigene Ergebniszeile.
+
+\subsection{Vorgesehene Ergebnisdarstellung}
+
+Die Tabellen~\ref{tab:results-quality} und~\ref{tab:results-reid} zeigen die kompakte Ergebnisdarstellung. \evalpending{} bedeutet \emph{noch nicht erhoben}. Nicht anwendbare Werte werden später mit einem Gedankenstrich, rechnerisch undefinierte Werte mit \emph{n.\,d.} gekennzeichnet. Ergänzende Szenarien können nach Durchführung als weitere Zeilen aufgenommen werden.
+
+\begin{table}[tbp]
+\caption{Vorlage für Erfassungs- und Trackingwerte der Referenzkonfiguration. Precision, Recall und IDF1 in Prozent; IDSW als Anzahl.}
+\label{tab:results-quality}
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}Xrrrr@{}}
+\toprule
+Szenario & Precision & Recall & IDF1 & IDSW \\
+\midrule
+UC-01: Einzelperson & \evalpending & \evalpending & \evalpending & \evalpending \\
+UC-02: Mehrere Personen & \evalpending & \evalpending & \evalpending & \evalpending \\
+UC-03: Rückkehr & \evalpending & \evalpending & \evalpending & \evalpending \\
+UC-04: Ähnliche Kleidung & \evalpending & \evalpending & \evalpending & \evalpending \\
+UC-05: Kreuzung & \evalpending & \evalpending & \evalpending & \evalpending \\
+UC-06: Bewegung & \evalpending & \evalpending & \evalpending & \evalpending \\
+UC-10: Unbekannter Eintritt & \evalpending & \evalpending & \evalpending & \evalpending \\
+UC-14: Externer Clip & \evalpending & \evalpending & \evalpending & \evalpending \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[tbp]
+\caption{Vorlage für Wiedererkennung und Komponentenvergleich auf demselben Ereignisbestand.}
+\label{tab:results-reid}
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}Xrrr@{}}
+\toprule
+Kenngrö{\ss}e & B0 & A1 & A2 \\
+\midrule
+Rückkehr korrekt / alle Rückkehrereignisse & \evalpending & \evalpending & \evalpending \\
+Davon: korrekt / zuvor registriert & \evalpending & \evalpending & \evalpending \\
+Unbekannte Eintritte korrekt / gesamt & \evalpending & \evalpending & \evalpending \\
+Falsche bestehende Personen-ID (Anzahl) & \evalpending & \evalpending & \evalpending \\
+Neue ID bei registrierter Person (Anzahl) & \evalpending & \evalpending & \evalpending \\
+Keine ID innerhalb von zwei Sekunden (Anzahl) & \evalpending & \evalpending & \evalpending \\
+Zeit bis korrekter ID, Median (s Videozeit) & \evalpending & \evalpending & \evalpending \\
+Verarbeitung (Frames/s) & \evalpending & \evalpending & \evalpending \\
+Real-Time-Faktor & \evalpending & \evalpending & \evalpending \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Nach der Durchführung werden die wichtigsten Unterschiede anhand kurzer Szenenbeispiele erläutert. Die Fehleranalyse unterscheidet fehlende Detektion, Verdeckung, Track-Wechsel, abgelehnte Ausschnitte und falschen Profilabgleich. Die Ergebnisse sollen zeigen, in welchen Situationen die Lösung ihre Projektziele erreicht und wo Einschränkungen bestehen. Vorliegend bleiben diese Aussagen bis zur Erhebung offen.
+
+\section{Diskussion und Grenzen}
+\label{sec:discussion}
+
+Die Architektur bildet eine nachvollziehbare Grundlage für die Projektversuche. Die wesentliche Entwurfsentscheidung ist die Trennung zwischen kurzfristigem Tracking und dauerhafter Personenkennung. Die Qualitätsprüfung adressiert ungeeignete Erstbeobachtungen und Profilupdates. Ob daraus tatsächlich stabilere IDs entstehen, ist eine empirische Frage. Auch gute Trackingwerte können mit falschen Personenprofilen einhergehen, weshalb beide Ebenen getrennt untersucht werden.
+
+Die erwartbaren Schwierigkeiten liegen bei ähnlicher Kleidung, starkem Perspektivwechsel, Verdeckungen und kleinen Ausschnitten. Ein vortrainierter Encoder kann in einer anderen Aufnahmeumgebung andere Ähnlichkeitsscores liefern. Ein einziges Profil pro Person vereinfacht die Speicherung, kann jedoch unterschiedliche Ansichten nur begrenzt repräsentieren. Fehlerhafte Zuordnungen können au{\ss}erdem spätere Profilupdates beeinflussen.
+
+Die technische Umsetzung ist für kleine, lokale Versuche ausgelegt. Die lineare Suche skaliert mit der Anzahl gespeicherter Profile; parallele Läufe und konfliktfreie ID-Erzeugung sind nicht umfassend abgesichert. Akzeptierte Updates erzeugen zusätzliche Ereignisse und Snapshots, ohne diese automatisch zu bereinigen. Eine explizite Versionierung der Encoder und Profile würde spätere Vergleiche erleichtern.
+
+Die geplante Stichprobe von vier Personen erlaubt Aussagen über die getesteten Abläufe, jedoch keine repräsentative Zuverlässigkeits- oder Fairnessbewertung. Wiederholte Aufnahmen erhöhen die Vielfalt der Situationen, nicht die Zahl unterschiedlicher Personen. Ein externer Clip ergänzt den Kontext, ersetzt aber keinen breiten Benchmark. Diese Grenzen werden auch bei positiven Einzelergebnissen beibehalten.
+
+\subsection{Umgang mit personenbezogenen Aufnahmen}
+\label{sec:privacy}
+
+Für die Eigenaufnahmen werden Zweck, verarbeitete Daten, Zugriffsberechtigte und Löschzeitpunkt mit den Teilnehmenden dokumentiert. Eine Verwendung erkennbarer Bilder in der Abgabe wird gesondert geklärt. Die Aufnahmen werden lokal und zugriffsbeschränkt verwaltet; Einwilligungsunterlagen verbleiben getrennt von technischen Kennungen. Die Nutzungsbedingungen des externen Datensatzes werden vor dessen Verarbeitung geprüft.
+
+Synthetische IDs verhindern keine Identifizierbarkeit über Bilder und Merkmale. Abhängig von Verarbeitung und Zweck können auch die Anforderungen an biometrische Daten relevant sein~\cite{gdpr,edpb-video}. Der Versuchsaufbau wird deshalb mit den zuständigen Stellen der Hochschule abgestimmt. Die Anwendung selbst ersetzt diesen organisatorischen Rahmen nicht: Sie besitzt noch keine vollständige Rechteverwaltung oder automatische Löschfristen.
+
+\section{Fazit und Ausblick}
+
+Im Masterprojekt wurde eine lokale Verarbeitungskette für Personendetektion, Tracking und synthetische Identitätszuordnung umgesetzt. Vorhandene Modelle werden mit einer Qualitätsprüfung, mehreren Initialbeobachtungen und einer lokalen Profilhistorie verbunden. Die Streamlit-Oberfläche macht den Ablauf bedienbar und unterstützt die Sichtprüfung von Fehlerfällen. Der Schwerpunkt liegt auf einem praktisch untersuchbaren Prototyp.
+
+Als nächster Schritt stehen der vollständige Vorhersageexport und die Durchführung der beschriebenen Evaluation an. Die Kernversuche sowie zwei gezielte Komponentenvergleiche sollen die Stärken und Grenzen der Umsetzung sichtbar machen. Bis diese Messungen vorliegen, bleiben Aussagen über Zuverlässigkeit, Verbesserung durch das Quality Gate und Echtzeitfähigkeit offen.
+
+Auf Grundlage der Ergebnisse können anschlie{\ss}end Schwellwerte angepasst, Profilupdates verbessert oder weitere Tracker untersucht werden. Die vorbereitete Fu{\ss}ballanalyse ist eine spätere Erweiterung und benötigt insbesondere eine integrierte Ball- und Teamverarbeitung sowie kalibrierte Spielfeldkoordinaten. Vorrang hat die überprüfbare Qualität des bestehenden Systems.
+
+% Optional nach Hochschulvorgabe: Betreuung / Danksagung ergänzen.
+
+\begin{otherlanguage}{english}
+\renewcommand{\refname}{Literatur}
+\begin{thebibliography}{9}
+
+\bibitem{aharon2022botsort}
+Aharon, N., Orfaig, R., Bobrovsky, B.-Z.: BoT-SORT: Robust Associations Multi-Pedestrian Tracking (2022), \url{https://arxiv.org/abs/2206.14651}
+
+\bibitem{edpb-video}
+European Data Protection Board: Guidelines 3/2019 on Processing of Personal Data through Video Devices, Version 2.0 (2020), \url{https://www.edpb.europa.eu/documents/guideline/guidelines-32019-on-processing-of-personal-data-through-video-devices_en}, last accessed 2026/09/12
+
+\bibitem{gdpr}
+European Parliament, Council of the European Union: Regulation (EU) 2016/679. Official Journal L~119 (2016), \url{https://eur-lex.europa.eu/eli/reg/2016/679/oj}, last accessed 2026/09/02
+
+\bibitem{trackeval}
+Luiten, J., Hoffhues, A.: TrackEval (2020), \url{https://github.com/JonathonLuiten/TrackEval}, last accessed 2026/09/12
+
+\bibitem{mot17-data}
+MOTChallenge: MOT17 -- Datensatz und Referenzannotation, \url{https://motchallenge.net/data/MOT17/}, last accessed 2026/09/12
+
+\bibitem{ristani2016identity}
+Ristani, E., Solera, F., Zou, R.S., Cucchiara, R., Tomasi, C.: Performance Measures and a Data Set for Multi-Target, Multi-Camera Tracking (2016), \url{https://arxiv.org/abs/1609.01775}
+
+\bibitem{ultralytics-track}
+Ultralytics: Multi-Object Tracking with Ultralytics YOLO, \url{https://docs.ultralytics.com/modes/track/}, last accessed 2026/09/02
+
+\bibitem{zhang2022bytetrack}
+Zhang, Y., Sun, P., Jiang, Y., Yu, D., Weng, F., Yuan, Z., Luo, P., Liu, W., Wang, X.: ByteTrack: Multi-Object Tracking by Associating Every Detection Box. In: ECCV 2022. LNCS, vol.~13682, pp.~1--21. Springer, Cham (2022). \doi{10.1007/978-3-031-20047-2_1}
+
+\bibitem{zhou2019osnet}
+Zhou, K., Yang, Y., Cavallaro, A., Xiang, T.: Omni-Scale Feature Learning for Person Re-Identification. In: Proc. IEEE/CVF ICCV, pp.~3702--3712 (2019). \doi{10.1109/ICCV.2019.00380}
+
+\end{thebibliography}
+\end{otherlanguage}
+\end{document}

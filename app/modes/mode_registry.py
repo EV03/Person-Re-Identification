@@ -1,3 +1,10 @@
+"""Registry and JSON persistence for built-in and user-defined modes.
+
+This module is the single lookup boundary used by both CLI and Streamlit.
+Adding a built-in mode means adding its factory to ``_BUILTIN_MODES``; custom
+modes are loaded from ``AppPaths.mode_config_path``.
+"""
+
 from __future__ import annotations
 
 import json

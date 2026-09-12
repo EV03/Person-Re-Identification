@@ -1,3 +1,10 @@
+"""Central runtime configuration and filesystem locations.
+
+Environment variables are loaded when this module is imported.  ``AppPaths``
+describes where persistent artifacts live, while ``PipelineConfig`` contains
+the algorithm and runtime settings for one pipeline execution.
+"""
+
 from __future__ import annotations
 
 import os
@@ -22,6 +29,12 @@ def _path_from_env(name: str, default: str) -> Path:
 
 @dataclass(frozen=True)
 class AppPaths:
+    """Resolved project paths for the database, inputs, outputs and mode files.
+
+    Relative values supplied through environment variables are interpreted
+    relative to the repository root.  Call :meth:`ensure` before writing.
+    """
+
     db_path: Path = _path_from_env("REID_DB_PATH", "data/db/reid.sqlite3")
     snapshot_dir: Path = _path_from_env("REID_SNAPSHOT_DIR", "data/snapshots")
     output_dir: Path = _path_from_env("REID_OUTPUT_DIR", "data/output")
@@ -42,6 +55,13 @@ class AppPaths:
 
 @dataclass
 class PipelineConfig:
+    """Complete, mode-independent configuration consumed by the orchestrator.
+
+    A ``ModeConfig`` is the user-facing preset.  It is converted into this
+    dataclass before ``PersonReIdPipeline`` is constructed.  Keep new runtime
+    switches here so CLI, UI and custom modes share the same contract.
+    """
+
     mode_id: str = "default"
     mode_name: str = "Default ReID MVP"
     pipeline_type: str = "person_reid"

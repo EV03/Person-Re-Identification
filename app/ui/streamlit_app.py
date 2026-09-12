@@ -1,3 +1,10 @@
+"""Streamlit entry point for configuring, running and inspecting analyses.
+
+Streamlit executes this module from top to bottom on every interaction.  Values
+that must survive a rerun therefore belong in ``st.session_state`` or a cache;
+pipeline work should only start inside an explicit user-action branch.
+"""
+
 from __future__ import annotations
 
 import sys

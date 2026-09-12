@@ -1,3 +1,10 @@
+"""End-to-end orchestration of video I/O, tracking, ReID and persistence.
+
+The collaborators in this module perform the specialized work; the
+orchestrator owns their order, run-local state and lifecycle.  Start with
+``PersonReIdPipeline.process`` when tracing a complete analysis.
+"""
+
 from __future__ import annotations
 
 import sys
@@ -30,6 +37,8 @@ FrameCallback = Callable[[int, np.ndarray], None]
 
 @dataclass
 class TrackEmbeddingCandidate:
+    """One quality-approved crop and embedding buffered for a tracker ID."""
+
     embedding: np.ndarray
     quality_score: float
     quality_details: dict[str, float]
@@ -40,6 +49,13 @@ class TrackEmbeddingCandidate:
 
 
 class PersonReIdPipeline:
+    """Coordinate one configured person re-identification pipeline.
+
+    Construction loads heavyweight detector and encoder backends.  A call to
+    :meth:`process` then handles exactly one source and returns its artifacts
+    and counters as a ``PipelineResult``.
+    """
+
     def __init__(self, config: PipelineConfig, paths: AppPaths | None = None) -> None:
         self.config = config
         self.paths = paths or AppPaths()
@@ -129,6 +145,17 @@ class PersonReIdPipeline:
         progress_callback: ProgressCallback | None = None,
         frame_callback: FrameCallback | None = None,
     ) -> PipelineResult:
+        """Analyze a video or camera source and persist identity observations.
+
+        ``progress_callback`` receives coarse run progress. ``frame_callback``
+        receives annotated preview frames and may be used by a UI, but must not
+        mutate the frame.  Identity and candidate maps are local to this call;
+        durable person profiles and analysis events live in the vector store.
+
+        Raises:
+            RuntimeError: If the source cannot be opened.
+        """
+
         cap = self._open_capture(source)
         if not cap.isOpened():
             raise RuntimeError(f"Could not open video source: {source}")
@@ -191,6 +218,8 @@ class PersonReIdPipeline:
             },
         )
 
+        # Run-local bridge from the tracker's short-lived IDs to durable person
+        # IDs. Candidates delay the initial decision until enough good views exist.
         track_to_person: dict[int, str] = {}
         track_to_last_score: dict[int, float | None] = {}
         track_candidates: dict[int, list[TrackEmbeddingCandidate]] = {}
@@ -213,6 +242,7 @@ class PersonReIdPipeline:
         if mode_warning:
             warnings.append(mode_warning)
 
+        # Hot path: read -> track -> quality gate -> encode/match -> draw/write.
         while True:
             ok, frame = cap.read()
             if not ok:
@@ -284,6 +314,8 @@ class PersonReIdPipeline:
                         detection_confidence=detection.confidence,
                     )
 
+                    # Unknown tracks collect several views before their first
+                    # database search, reducing decisions based on one weak crop.
                     if person_id is None:
                         candidates = track_candidates.setdefault(detection.track_id, [])
                         candidates.append(candidate)
@@ -351,6 +383,8 @@ class PersonReIdPipeline:
                         track_to_last_score[detection.track_id] = score
                         track_candidates[detection.track_id] = []
 
+                    # Known tracks only update their durable profile with a
+                    # stricter quality threshold than the initial candidate gate.
                     elif quality_score >= self.config.min_update_quality:
                         snapshot_path = save_crop(candidate.crop, self.paths.snapshot_dir, person_id, frame_index)
                         self.store.add_or_update_person(
@@ -386,6 +420,7 @@ class PersonReIdPipeline:
                                 draw_motion=self.config.draw_motion_vectors,
                             )
 
+            # Export and UI callbacks see the fully annotated frame.
             writer.write(frame)
 
             if frame_callback and (

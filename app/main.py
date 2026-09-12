@@ -1,3 +1,5 @@
+"""Command-line entry point for running one person-ReID analysis."""
+
 from __future__ import annotations
 
 import argparse
@@ -9,6 +11,8 @@ from app.pipeline.orchestrator import PersonReIdPipeline
 
 
 def parse_args() -> argparse.Namespace:
+    """Build the CLI from the currently available built-in and custom modes."""
+
     paths = AppPaths()
     available_modes = sorted(list_modes(paths).keys())
 
@@ -25,6 +29,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Resolve CLI overrides, run the pipeline and print a compact summary."""
+
     args = parse_args()
     source: str | int
     source = int(args.source) if args.source.isdigit() else args.source

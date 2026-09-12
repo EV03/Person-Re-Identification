@@ -5,6 +5,8 @@ Es nimmt ein Video oder optional eine lokale Webcam als Eingabe, erkennt Persone
 
 > Wichtig: Dieses MVP ist bewusst als **Demo- und Forschungssetup** gebaut. Es speichert standardmäßig keine echten Namen, keine Gesichter als Identitätsprofil und keine personenbezogenen Attribute. Es erzeugt nur synthetische IDs wie `person_000001`.
 
+> **Neu in der Codebase?** Der [`Codebase Guide`](docs/CODEBASE_GUIDE.md) erklärt Architektur, Datenfluss, zentrale Zustände, Debugging, Performance-Hotspots und eine sichere Refactoring-Reihenfolge.
+
 ---
 
 starten mit

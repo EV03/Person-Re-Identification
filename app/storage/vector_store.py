@@ -1,3 +1,5 @@
+"""SQLite persistence and exact cosine search for person embeddings."""
+
 from __future__ import annotations
 
 import json
