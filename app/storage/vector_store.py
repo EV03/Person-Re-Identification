@@ -105,6 +105,10 @@ class SQLiteVectorStore:
                 """
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_analysis_runs_mode_id ON analysis_runs(mode_id)")
+            self._ensure_column(conn, "analysis_runs", "status", "TEXT NOT NULL DEFAULT 'unknown'")
+            self._ensure_column(conn, "analysis_runs", "processed_frames", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, "analysis_runs", "finished_at", "TEXT")
+            self._ensure_column(conn, "analysis_runs", "error", "TEXT")
 
 
     @staticmethod
@@ -164,9 +168,9 @@ class SQLiteVectorStore:
                 """
                 INSERT OR REPLACE INTO analysis_runs (
                     run_id, mode_id, mode_name, pipeline_type, source, fps,
-                    frame_count, width, height, created_at, metadata_json
+                    frame_count, width, height, created_at, metadata_json, status
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running')
                 """,
                 (
                     run_id,
@@ -182,6 +186,13 @@ class SQLiteVectorStore:
                     metadata_json,
                 ),
             )
+
+    def finish_analysis_run(self, run_id: str, *, status: str, processed_frames: int, error: str | None) -> None:
+        if status not in {"completed", "failed"}:
+            raise ValueError("Unknown final run status.")
+        with self._connect() as conn:
+            conn.execute("UPDATE analysis_runs SET status=?, processed_frames=?, finished_at=?, error=? WHERE run_id=?",
+                         (status, processed_frames, utc_now_iso(), error, run_id))
 
     def search(self, embedding: np.ndarray, threshold: float, exclude_person_ids: set[str] | None = None) -> MatchResult | None:
         exclude_person_ids = exclude_person_ids or set()
@@ -370,7 +381,8 @@ class SQLiteVectorStore:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT run_id, mode_id, mode_name, pipeline_type, source, fps, frame_count, width, height, created_at
+                SELECT run_id, mode_id, mode_name, pipeline_type, source, fps, frame_count, width, height, created_at,
+                       status, processed_frames, finished_at, error
                 FROM analysis_runs
                 ORDER BY created_at DESC
                 LIMIT ?

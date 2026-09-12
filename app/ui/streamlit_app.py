@@ -8,6 +8,7 @@ pipeline work should only start inside an explicit user-action branch.
 from __future__ import annotations
 
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 # Allow running this file directly via: streamlit run app/ui/streamlit_app.py
@@ -18,11 +19,19 @@ if str(PROJECT_ROOT) not in sys.path:
 import cv2
 import streamlit as st
 
-from app.config import AppPaths
+from app.config import AppPaths, PipelineConfig
 from app.modes.base_mode import ModeConfig
 from app.modes.mode_registry import list_modes, normalize_mode_id, save_custom_mode
 from app.pipeline.orchestrator import PersonReIdPipeline
 from app.storage.vector_store import SQLiteVectorStore
+from app.evaluation.runner import create_unit_paths
+from app.ui.config_editor import (
+    RUNTIME_PARAMETER_FIELDS,
+    build_run_config,
+    changed_parameters,
+    preset_from_config,
+    runtime_parameters,
+)
 from app.utils.camera_utils import (
     CameraSource,
     camera_backends,
@@ -54,103 +63,84 @@ def bgr_to_rgb(frame_bgr):
     return cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
 
 
-def option_index(options: list[str], value: str, fallback: int = 0) -> int:
-    try:
-        return options.index(value)
-    except ValueError:
-        return fallback
+def load_editor(mode: ModeConfig) -> None:
+    """Load before rendering widgets; explicit keys keep edits across reruns."""
+    for field, value in runtime_parameters(mode.to_pipeline_config()).items():
+        st.session_state[f"pipeline_{field}"] = value
+    st.session_state["editor_preset_id"] = mode.mode_id
 
 
-def render_create_mode_form(paths: AppPaths, modes: dict[str, ModeConfig]) -> None:
-    with st.expander("Create custom mode preset"):
-        st.caption(
-            "Ein Preset speichert Parameter derselben ReID-Pipeline. "
-            "Eigene Varianten dienen Pilotversuchen; B0/A1/A2 bleiben als Referenzen verfügbar."
-        )
-        with st.form("create_custom_mode_form"):
-            base_mode_id = st.selectbox(
-                "Base mode",
-                options=list(modes.keys()),
-                format_func=lambda mode_id: f"{modes[mode_id].name} ({mode_id})",
-            )
-            base_mode = modes[base_mode_id]
+def reset_editor() -> None:
+    # Button callbacks run before the next script execution and widget creation.
+    st.session_state["editor_preset_id"] = None
+
+
+def render_pipeline_editor() -> dict[str, object]:
+    st.subheader("Modelle und Tracking")
+    st.text_input("YOLO model", key="pipeline_yolo_model")
+    st.text_input(
+        "Tracker configuration", key="pipeline_tracker",
+        help="bytetrack.yaml, botsort.yaml oder eine eigene YAML-Datei. Interne Tracker-Schwellen werden in dieser Datei eingestellt.",
+    )
+    st.selectbox("Encoder backend", ["colorhist", "torchreid"], key="pipeline_encoder_backend")
+    st.text_input("ReID model", key="pipeline_reid_model_name")
+    st.text_input("ReID checkpoint", key="pipeline_reid_checkpoint",
+                  help="Explizite ReID-Gewichte für OSNet. Relative Pfade beziehen sich auf das Projekt; Farbhistogramme ignorieren dieses Feld.")
+    st.text_input("Device", key="pipeline_device", help="auto, cpu, cuda oder cuda:0")
+
+    st.subheader("Schwellenwerte")
+    for field, label, lower, upper, help_text in (
+        ("match_threshold", "Match threshold", -1.0, 1.0, "Cosine Similarity: Ein Profil wird ab diesem Wert akzeptiert."),
+        # Ultralytics' track() replaces an exact zero with its 0.1 default.
+        ("detection_confidence", "Detection confidence", 0.0001, 1.0, "Konfidenzgrenze für YOLO. Muss positiv sein: Ultralytics würde exakt 0 intern durch 0,1 ersetzen."),
+        ("min_embedding_quality", "Min crop quality for ReID candidates", 0.0, 1.0, "0 deaktiviert diese Qualitätsschwelle; Mindestgrößen und Qualitätsgewichtung bleiben erhalten."),
+        ("min_update_quality", "Min crop quality for person embedding updates", 0.0, 1.0, "Updates müssen zusätzlich die Kandidatenschwelle erfüllen."),
+    ):
+        st.number_input(label, min_value=lower, max_value=upper, step=0.01,
+                        format="%.4f", key=f"pipeline_{field}", help=help_text)
+
+    st.subheader("Ausschnitte und zeitliche Parameter")
+    for field, label, minimum, help_text in (
+        ("min_crop_width", "Min crop width (px)", 0, "0 deaktiviert die Mindestbreite; leere Crops bleiben ungültig."),
+        ("min_crop_height", "Min crop height (px)", 0, "0 deaktiviert die Mindesthöhe; leere Crops bleiben ungültig."),
+        ("min_good_frames_before_reid", "Min good frames before first ReID match", 1, "Anzahl akzeptierter Beobachtungen vor der ersten Identitätsentscheidung."),
+        ("reid_every_n_frames", "ReID every N frames", 1, "Update-Intervall bekannter Tracks; unbekannte Tracks sammeln Kandidaten in jedem Frame."),
+        ("image_size", "Image size", 32, "YOLO-Eingangsgröße; Vielfache von 32 verwenden."),
+        ("max_frames", "Max frames (0 = vollständiges Video)", 0, "Für vollständige Evaluationsclips 0 setzen."),
+    ):
+        st.number_input(label, min_value=minimum, step=1, key=f"pipeline_{field}", help=help_text)
+    st.number_input("Crop padding", min_value=0.0, step=0.01, format="%.4f",
+                    key="pipeline_crop_padding", help="Zusätzlicher Rand relativ zur Boxgröße, z. B. 0,05 = 5 % pro Seite.")
+
+    st.subheader("Ausgabeparameter")
+    st.checkbox("Annotate output video", key="pipeline_draw_debug")
+    st.number_input("Preview every N frames", min_value=1, step=1,
+                    key="pipeline_live_preview_every_n_frames")
+    return {field: st.session_state[f"pipeline_{field}"] for field in RUNTIME_PARAMETER_FIELDS}
+
+
+def render_save_mode_form(paths: AppPaths, config: PipelineConfig) -> None:
+    with st.expander("Aktuelle Einstellungen als neue Versuchskonfiguration speichern"):
+        st.caption("Speichert exakt alle oben eingestellten Pipeline-Parameter. B0/A1/A2 und vorhandene Presets werden nicht überschrieben.")
+        with st.form("save_current_configuration"):
             custom_name = st.text_input("Mode name", value="Mein ReID-Pilot")
             custom_mode_id_raw = st.text_input("Mode id", value="mein_reid_pilot")
-            custom_description = st.text_area(
-                "Description",
-                value="Custom preset for a specific video analysis setup.",
-                height=80,
-            )
-
-            col_a, col_b = st.columns(2)
-            with col_a:
-                custom_yolo_model = st.text_input("YOLO model default", value=base_mode.yolo_model)
-                custom_tracker = st.selectbox(
-                    "Tracker default",
-                    options=["bytetrack.yaml", "botsort.yaml"],
-                    index=option_index(["bytetrack.yaml", "botsort.yaml"], base_mode.tracker),
-                )
-                custom_encoder = st.selectbox(
-                    "Encoder default",
-                    options=["colorhist", "torchreid"],
-                    index=option_index(["colorhist", "torchreid"], base_mode.encoder_backend),
-                )
-            with col_b:
-                custom_threshold = st.slider(
-                    "Match threshold default",
-                    min_value=0.30,
-                    max_value=0.99,
-                    value=float(base_mode.match_threshold),
-                    step=0.01,
-                )
-                custom_detection_conf = st.slider(
-                    "Detection confidence default",
-                    min_value=0.10,
-                    max_value=0.90,
-                    value=float(base_mode.detection_confidence),
-                    step=0.05,
-                )
-                custom_max_frames = st.number_input(
-                    "Max frames default (0 = vollständiges Video)",
-                    min_value=0,
-                    max_value=100000,
-                    value=int(base_mode.max_frames),
-                    step=50,
-                )
-
-            submitted = st.form_submit_button("Save custom mode")
-
+            custom_description = st.text_area("Description", height=80)
+            submitted = st.form_submit_button("Aktuelle Einstellungen speichern")
         if submitted:
             try:
-                custom_mode_id = normalize_mode_id(custom_mode_id_raw)
-                custom_mode = ModeConfig(
-                    mode_id=custom_mode_id,
-                    name=custom_name.strip() or custom_mode_id,
-                    description=custom_description.strip(),
-                    yolo_model=custom_yolo_model,
-                    tracker=custom_tracker,
-                    encoder_backend=custom_encoder,
-                    match_threshold=float(custom_threshold),
-                    detection_confidence=float(custom_detection_conf),
-                    image_size=base_mode.image_size,
-                    reid_every_n_frames=base_mode.reid_every_n_frames,
-                    min_good_frames_before_reid=base_mode.min_good_frames_before_reid,
-                    min_embedding_quality=base_mode.min_embedding_quality,
-                    min_update_quality=base_mode.min_update_quality,
-                    max_frames=int(custom_max_frames),
-                    min_crop_height=base_mode.min_crop_height,
-                    min_crop_width=base_mode.min_crop_width,
-                    crop_padding=base_mode.crop_padding,
-                    device=base_mode.device,
-                    draw_debug=base_mode.draw_debug,
-                    live_preview_every_n_frames=base_mode.live_preview_every_n_frames,
-                    is_custom=True,
-                )
-                saved = save_custom_mode(custom_mode, paths=paths, overwrite=False)
-                st.success(f"Custom mode saved: {saved.name} ({saved.mode_id})")
-                st.rerun()
-            except Exception as exc:
+                mode_id = normalize_mode_id(custom_mode_id_raw)
+                mode = preset_from_config(config, mode_id=mode_id,
+                                          name=custom_name.strip() or mode_id,
+                                          description=custom_description.strip())
+                saved = save_custom_mode(mode, paths=paths, overwrite=False)
+            except (OSError, TypeError, ValueError) as exc:
                 st.error(str(exc))
+            else:
+                # Apply selection at the start of the rerun, before its widget exists.
+                st.session_state["pending_preset_id"] = saved.mode_id
+                st.session_state["preset_saved_notice"] = f"Gespeichert und geladen: {saved.name} ({saved.mode_id})"
+                st.rerun()
 
 
 st.set_page_config(page_title="Local Person ReID MVP", layout="wide")
@@ -160,9 +150,12 @@ paths.ensure()
 
 st.title("Local Person Re-Identification MVP")
 st.caption("Forschungsprototyp: YOLO, Tracking, qualitätsgefilterte ReID und lokale SQLite-Speicherung")
-st.caption("B0/A1/A2 sind Konfigurationsvorlagen. Modellgewichte und vollständiger Messdatenexport müssen vor der Evaluation festgelegt werden.")
+st.caption("B0/A1/A2: OSNet mit dokumentierten ReID-Gewichten, vollständiger Frame-Export und Laufmanifest. Parameter vor den Testclips einfrieren.")
 
 modes = list_modes(paths)
+pending_preset_id = st.session_state.pop("pending_preset_id", None)
+if pending_preset_id in modes:
+    st.session_state["selected_preset_id"] = pending_preset_id
 
 with st.sidebar:
     st.header("Versuchskonfiguration")
@@ -170,97 +163,43 @@ with st.sidebar:
         "ReID preset",
         options=list(modes.keys()),
         format_func=lambda mode_id: f"{modes[mode_id].name} ({mode_id})",
+        key="selected_preset_id",
     )
     selected_mode = modes[selected_mode_id]
     st.caption(selected_mode.description)
 
-    render_create_mode_form(paths, modes)
+    if st.session_state.get("editor_preset_id") != selected_mode_id:
+        load_editor(selected_mode)
+    notice = st.session_state.pop("preset_saved_notice", None)
+    if notice:
+        st.success(notice)
+    st.caption("Preset laden → Parameter bearbeiten → starten oder als neues Preset speichern. Nur die aktuellen Werte gelten beim Start.")
+    st.button("Änderungen verwerfen / Preset neu laden", on_click=reset_editor)
 
     st.divider()
-    st.header("Pipeline Settings")
+    st.header("Pipeline-Parameter")
+    parameters = render_pipeline_editor()
+    config = build_run_config(selected_mode, parameters)
+    changes = changed_parameters(selected_mode, parameters)
+    if changes:
+        st.warning(f"{selected_mode.name}: geändert ({len(changes)} Parameter). Noch nicht als neues Preset gespeichert.")
+        with st.expander("Änderungen gegenüber dem geladenen Preset"):
+            st.json(changes)
+    else:
+        st.success(f"{selected_mode.name}: unverändert")
+    if config.min_update_quality < config.min_embedding_quality:
+        st.info("Die Update-Schwelle liegt unter der Kandidatenschwelle. Effektiv müssen Updates beide erfüllen; die höhere Schwelle gilt.")
+    st.caption("Schwellen auf Pilotdaten einstellen und vor der Evaluation einfrieren. Die Qualitätsheuristik selbst bleibt unverändert.")
+    render_save_mode_form(paths, config)
+    with st.expander("Tatsächlich verwendete Pipeline-Konfiguration"):
+        st.json(asdict(config))
 
+    st.divider()
+    st.header("Quelle und Anzeige (nicht Teil des Presets)")
     input_type = st.radio("Input type", ["Video upload", "Local webcam"], index=0)
-    yolo_model = st.text_input("YOLO model", value=selected_mode.yolo_model)
-    tracker = st.selectbox(
-        "Tracker",
-        ["bytetrack.yaml", "botsort.yaml"],
-        index=option_index(["bytetrack.yaml", "botsort.yaml"], selected_mode.tracker),
-    )
-    encoder_backend = st.selectbox(
-        "Encoder backend",
-        ["colorhist", "torchreid"],
-        index=option_index(["colorhist", "torchreid"], selected_mode.encoder_backend),
-    )
-
-    match_threshold = st.slider(
-        "Match threshold",
-        min_value=0.30,
-        max_value=0.99,
-        value=float(selected_mode.match_threshold),
-        step=0.01,
-    )
-    detection_confidence = st.slider(
-        "Detection confidence",
-        min_value=0.10,
-        max_value=0.90,
-        value=float(selected_mode.detection_confidence),
-        step=0.05,
-    )
-    reid_every_n_frames = st.number_input(
-        "ReID every N frames",
-        min_value=1,
-        max_value=100,
-        value=int(selected_mode.reid_every_n_frames),
-        step=1,
-    )
-    min_good_frames_before_reid = st.number_input(
-        "Min good frames before first ReID match",
-        min_value=1,
-        max_value=20,
-        value=int(selected_mode.min_good_frames_before_reid),
-        step=1,
-        help="Neue Tracks werden erst gespeichert oder gematcht, wenn genug hochwertige Crops gesammelt wurden.",
-    )
-    min_embedding_quality = st.slider(
-        "Min crop quality for ReID candidates",
-        min_value=0.00,
-        max_value=1.00,
-        value=float(selected_mode.min_embedding_quality),
-        step=0.05,
-        help="Crops unter diesem Qualitätswert werden nicht encodiert und nicht als neue ReID-Kandidaten genutzt.",
-    )
-    min_update_quality = st.slider(
-        "Min crop quality for person embedding updates",
-        min_value=0.00,
-        max_value=1.00,
-        value=float(selected_mode.min_update_quality),
-        step=0.05,
-        help="Bestehende Personen-Embeddings werden nur mit Crops ab diesem Qualitätswert aktualisiert.",
-    )
-    max_frames = st.number_input(
-        "Max frames (0 = vollständiges Video)",
-        min_value=0,
-        max_value=100000,
-        value=int(selected_mode.max_frames),
-        step=50,
-    )
-    image_size = st.selectbox(
-        "Image size",
-        [320, 480, 640, 960, 1280],
-        index=option_index([320, 480, 640, 960, 1280], selected_mode.image_size, fallback=2),
-    )
-    device = st.selectbox("Device", ["auto", "cpu", "cuda"], index=option_index(["auto", "cpu", "cuda"], selected_mode.device))
-
-    st.divider()
-    st.header("Live Display")
+    isolated_run = st.checkbox("Isolierter Lauf (neue Datenbank)", value=True,
+                               help="Standard für unabhängige Versuche. Deaktivieren teilt den bisherigen interaktiven Profilbestand; für UC-12 den CLI-Versuchsstarter mit beiden Videos verwenden.")
     show_live_preview = st.checkbox("Show live annotated preview", value=True)
-    preview_every_n_frames = st.number_input(
-        "Preview every N frames",
-        min_value=1,
-        max_value=30,
-        value=int(selected_mode.live_preview_every_n_frames),
-        step=1,
-    )
     preview_width = st.slider("Preview width", min_value=480, max_value=1400, value=960, step=40)
 
     st.divider()
@@ -349,36 +288,21 @@ col_run, col_db = st.columns([1, 1])
 
 with col_run:
     run_clicked = st.button(
-        f"Run {selected_mode.name}",
+        f"Run {config.mode_name}",
         type="primary",
         width="stretch",
         disabled=source is None,
     )
 
 with col_db:
-    store = SQLiteVectorStore(paths.db_path)
-    st.metric("Known synthetic persons", store.count_persons())
+    displayed_paths = st.session_state.get("last_run_paths", paths)
+    store = SQLiteVectorStore(displayed_paths.db_path)
+    st.metric("Synthetic persons in displayed database", store.count_persons())
 
 live_preview_placeholder = st.empty()
 status_placeholder = st.empty()
 
 if run_clicked and source is not None:
-    config = selected_mode.to_pipeline_config(
-        yolo_model=yolo_model,
-        tracker=tracker,
-        encoder_backend=encoder_backend,
-        match_threshold=float(match_threshold),
-        detection_confidence=float(detection_confidence),
-        image_size=int(image_size),
-        reid_every_n_frames=int(reid_every_n_frames),
-        min_good_frames_before_reid=int(min_good_frames_before_reid),
-        min_embedding_quality=float(min_embedding_quality),
-        min_update_quality=float(min_update_quality),
-        max_frames=int(max_frames),
-        device=device,
-        live_preview_every_n_frames=int(preview_every_n_frames),
-    )
-
     progress = st.progress(0)
     status = status_placeholder
 
@@ -406,14 +330,23 @@ if run_clicked and source is not None:
         except Exception:
             return
 
+    pipeline = None
     try:
-        pipeline = PersonReIdPipeline(config=config, paths=paths)
+        run_paths = create_unit_paths(base_paths=paths, mode_id=config.mode_id) if isolated_run else paths
+        st.session_state["last_run_paths"] = run_paths
+        pipeline = PersonReIdPipeline(config=config, paths=run_paths)
         result = pipeline.process(source, progress_callback=update_progress, frame_callback=update_live_preview)
     except Exception as exc:
         st.error(str(exc))
+        failure_manifest = getattr(pipeline, "last_manifest_path", None)
+        if failure_manifest:
+            st.caption(f"Fehlgeschlagener Lauf dokumentiert: {failure_manifest}")
         st.stop()
 
     st.success(f"Finished mode {result.mode_name}. Processed {result.processed_frames} frames.")
+    if result.manifest_path:
+        st.caption(f"Laufmanifest: {result.manifest_path}")
+        st.caption(f"Vollständige Frame-Vorhersagen: {result.predictions_path}")
 
     if result.warnings:
         for warning in result.warnings:
@@ -434,7 +367,9 @@ if run_clicked and source is not None:
 
 st.divider()
 
-store = SQLiteVectorStore(paths.db_path)
+displayed_paths = st.session_state.get("last_run_paths", paths)
+store = SQLiteVectorStore(displayed_paths.db_path)
+st.caption(f"Angezeigte Datenbank: {displayed_paths.db_path}")
 persons_df = store.persons_dataframe()
 events_df = store.events_dataframe(limit=200)
 runs_df = store.analysis_runs_dataframe(limit=100)

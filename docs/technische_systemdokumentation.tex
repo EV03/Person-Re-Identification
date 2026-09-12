@@ -59,7 +59,7 @@ Die Anwendung folgt dem Prinzip Tracking-by-Detection. YOLO liefert Bounding Box
 
 Die \path{track_id} stellt die kurzfristige Kontinuität innerhalb einer Sequenz her. Daneben verwaltet die Anwendung eine persistente \path{person_id}. Diese Trennung erlaubt es, eine neue Spur einem früher gespeicherten Personenprofil zuzuordnen. Das anwendungsseitige ReID-Modul nutzt seine Merkmale für den Datenbankabgleich. Es ist damit von einer optionalen internen Appearance-Unterstützung des Trackers zu unterscheiden.
 
-OSNet wurde für Person-ReID entwickelt und kombiniert visuelle Merkmale verschiedener räumlicher Skalen~\cite{zhou2019osnet}. Im Projekt ist \path{osnet_x1_0} über Torchreid angebunden und für 512-dimensionale Merkmalsvektoren vorgesehen. Der Adapter übergibt derzeit einen leeren Checkpoint-Pfad; die Auswahl und Dokumentation ReID-trainierter Gewichte steht vor der Evaluation noch aus. Eine erfolgreiche Initialisierung allein belegt keine ReID-spezifische Vortrainierung. Zum Vergleich steht ein einfaches HSV-Farbhistogramm mit 32 Dimensionen bereit. Dieses bildet vorwiegend die Farbverteilung ab. Bei ähnlicher Kleidung ist seine Trennschärfe daher besonders eingeschränkt.
+OSNet wurde für Person-ReID entwickelt und kombiniert visuelle Merkmale verschiedener räumlicher Skalen~\cite{zhou2019osnet}. Im Projekt ist \path{osnet_x1_0} über Torchreid angebunden und liefert 512-dimensionale Merkmalsvektoren. Verwendet werden die von den Autoren veröffentlichten ReID-Gewichte für MSMT17 mit \path{combineall=True}~\cite{torchreid-modelzoo}. Eigenes Training oder Fine-Tuning wurde nicht durchgeführt. Checkpoint-Herkunft und SHA-256-Prüfsumme sind im Repository dokumentiert und werden im Laufmanifest festgehalten; fehlende oder inkompatible Gewichte führen zum Abbruch statt zu einem ImageNet-Fallback. MSMT17 ist damit kein unabhängiger Testdatensatz für diese Modellwahl. Zum Vergleich steht ein einfaches HSV-Farbhistogramm mit 32 Dimensionen bereit. Dieses bildet vorwiegend die Farbverteilung ab. Bei ähnlicher Kleidung ist seine Trennschärfe daher besonders eingeschränkt.
 
 Die Embeddings werden auf die euklidische Länge eins normalisiert. Für zwei normalisierte Merkmalsvektoren $z_q$ und $z_p$ entspricht die Cosine Similarity ihrem Skalarprodukt:
 \begin{equation}
@@ -118,6 +118,8 @@ Die niedrigere Kandidatenschwelle soll genügend Erstbeobachtungen zulassen, die
 
 Tabelle~\ref{tab:defaults} enthält die wesentlichen Referenzparameter. Für die Versuche lassen sich Modell, Tracker, Encoder, Schwellwerte und Verarbeitungsintervalle anpassen. Videodateien können auch über einen Kommandozeileneinstieg verarbeitet werden. Betriebsanweisungen sowie Einzelheiten zu Dateien und Installation bleiben der Repository-Dokumentation vorbehalten.
 
+Die Oberfläche verwendet einen gemeinsamen Parametereditor: Ein Preset liefert die Ausgangswerte, die sich anschlie{\ss}end bearbeiten lassen. Starten und Speichern einer neuen Versuchskonfiguration verwenden dieselben aktuellen Pipeline-Parameter. Geänderte Läufe werden gekennzeichnet, ohne das Ausgangspreset zu überschreiben. Auch Crop-Mindestgrö{\ss}en und Padding sind editierbar. Tracker-interne Schwellen gehören dagegen zur gewählten Tracker-Konfiguration; die festen Konstanten der Qualitätsheuristik bleiben unverändert. Quelle und reine Anzeigeeinstellungen werden getrennt von den Pipeline-Presets behandelt.
+
 \begin{table}[tbp]
 \caption{Ausgangskonfiguration für die Projektversuche.}
 \label{tab:defaults}
@@ -141,7 +143,7 @@ Live-Vorschau & jedes 10. Frame \\
 
 \subsection{Datenhaltung und Erweiterbarkeit}
 
-Im Hauptpfad gliedert sich die Datenhaltung in drei Bereiche. Die Personenprofile speichern das normalisierte Profil-Embedding, die Beobachtungszahl, Zeitpunkte und den Verweis auf einen Snapshot. Ausgewählte Zuordnungen und Updates werden als Ereignisse dokumentiert, einschlie{\ss}lich Quelle, Frame, Track und Qualitätsinformationen. Analyse-Läufe halten Quelle, Modus und wesentliche Konfigurationswerte fest. Video- und Snapshot-Dateien liegen au{\ss}erhalb der Datenbank im lokalen Dateisystem.
+Im Hauptpfad gliedert sich die Datenhaltung in drei Bereiche. Die Personenprofile speichern das normalisierte Profil-Embedding, die Beobachtungszahl, Zeitpunkte und den Verweis auf einen Snapshot. Ausgewählte Zuordnungen und Updates werden als Ereignisse dokumentiert, einschlie{\ss}lich Quelle, Frame, Track und Qualitätsinformationen. Ereignisframes bezeichnen den tatsächlichen Entscheidungszeitpunkt, Snapshotframes werden separat gespeichert. Analyse-Läufe halten Quelle, Modus, vollständige effektive Pipeline-Konfiguration, verarbeitete Frames und Abschlussstatus fest. Ergänzend entstehen ein vollständiger Frame-Export, eine MOT-Ansicht echter Trackerkennungen und ein Laufmanifest mit Datei-/Gewichte-Hashes, Codeversion, Paketversionen, Hardware und Zeitmessungen. Leere Frames und ungetrackte Boxen bleiben im Frame-Export enthalten. Video- und Snapshot-Dateien liegen au{\ss}erhalb der Datenbank; Snapshotpfade enthalten die Laufkennung.
 
 Profile können in der Datenbank über mehrere Durchläufe erhalten bleiben. Eine Person in einem späteren Video lässt sich dadurch erneut mit dem bestehenden Bestand vergleichen. Ein direkter Vergleich zwischen Encodern mit unterschiedlichen Dimensionen ist nicht möglich. Die Implementierung überspringt inkompatible Profile. Für faire Vergleichsversuche wird dennoch jeweils eine eigene Datenbank aus denselben Registrierungsbildern aufgebaut.
 
@@ -151,7 +153,7 @@ Die Versuchskonfigurationen B0, A1 und A2 sind als Presets derselben ReID-Pipeli
 
 Der dokumentierte Projektstand deckt den vollständigen Verarbeitungsweg von der lokalen Quelle bis zur synthetischen ID und visuellen Ausgabe ab. Bei der ursprünglichen technischen Vorprüfung wurden die Python-Dateien syntaktisch kompiliert und die Kernabhängigkeiten importiert. Erkennungsqualität und Echtzeitfähigkeit lassen sich aus diesen Prüfungen nicht ableiten.
 
-Für die Evaluation fehlt insbesondere ein vollständiger Export der Vorhersagen pro Frame. Bislang entstehen Ereignisse nur bei ausgewählten Matches und Updates. Weder die Gesamtzahl neuer Profile noch die angezeigten Matches ersetzen daher eine Genauigkeitsmetrik. Vor der quantitativen Auswertung ist die entsprechende Messschnittstelle zu ergänzen.
+Der vollständige Frame-Export und isolierte Versuchseinheiten sind implementiert. Pro Variante und Wiederholung entsteht eine neue Versuchsdatenbank; zusammengehörige Registrierungs-/Rückkehrclips teilen Profile, aber nicht den Tracker. Echte Modell-/Video-Smoke-Tests prüfen B0/A1/A2 mit künstlichen Clips ohne Personen. Definierte Box-/Embedding-Sequenzen prüfen Identitätsentscheidungen und Fehlerfälle. Die quantitative Auswertung gegen annotierte Referenzclips ist noch durchzuführen. Weder die Gesamtzahl neuer Profile noch die angezeigten Matches ersetzen eine Genauigkeitsmetrik.
 
 \section{Evaluation}
 \label{sec:evaluation}
@@ -319,7 +321,7 @@ Synthetische IDs schlie{\ss}en eine Identifizierbarkeit über Bilder und Merkmal
 
 Im Masterprojekt wurde eine lokale Verarbeitungskette für Personendetektion, Tracking und synthetische Identitätszuordnung umgesetzt. Sie verbindet vorhandene Modelle mit einer Qualitätsprüfung, mehreren Initialbeobachtungen und einer lokalen Profilhistorie. Über die Streamlit-Oberfläche wird der Ablauf bedienbar. Sie unterstützt zugleich die Sichtprüfung von Fehlerfällen. Im Mittelpunkt steht ein praktisch untersuchbarer Prototyp.
 
-Nun stehen der vollständige Vorhersageexport und die Durchführung der beschriebenen Evaluation an. Die Kernversuche und zwei gezielte Komponentenvergleiche sollen Stärken und Grenzen der Umsetzung sichtbar machen. Aussagen über Zuverlässigkeit, Verbesserung durch das Quality Gate und Echtzeitfähigkeit bleiben bis zum Vorliegen dieser Messungen offen.
+Die technische Messschnittstelle mit Frame-Export, isolierten Läufen und Manifesten ist vorbereitet. Nun stehen Referenzannotation, Metrikauswertung und Durchführung der beschriebenen Evaluation an. Die Kernversuche und zwei gezielte Komponentenvergleiche sollen Stärken und Grenzen der Umsetzung sichtbar machen. Aussagen über Zuverlässigkeit, Verbesserung durch das Quality Gate und Echtzeitfähigkeit bleiben bis zum Vorliegen dieser Messungen offen.
 
 Die Ergebnisse bilden die Grundlage dafür, anschlie{\ss}end Schwellwerte anzupassen, Profilupdates zu verbessern oder weitere Tracker zu untersuchen. Austauschbare Komponenten und eine reproduzierbare Messschnittstelle sollen die weitere Arbeit am ReID-Kern erleichtern.
 
@@ -340,6 +342,9 @@ European Parliament, Council of the European Union: Regulation (EU) 2016/679. Of
 
 \bibitem{trackeval}
 Luiten, J., Hoffhues, A.: TrackEval (2020), \url{https://github.com/JonathonLuiten/TrackEval}, last accessed 2026/09/12
+
+\bibitem{torchreid-modelzoo}
+Zhou, K.: Torchreid Model Zoo -- OSNet-x1.0, MSMT17 (combineall=True), \url{https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO}, last accessed 2026/09/12
 
 \bibitem{mot17-data}
 MOTChallenge: MOT17 -- Datensatz und Referenzannotation, \url{https://motchallenge.net/data/MOT17/}, last accessed 2026/09/12

@@ -11,6 +11,9 @@ data/input/*
 data/output/*
 data/snapshots/*
 data/modes/*.json
+data/models/
+data/experiments/
+data/cache/
 output/
 tmp/
 *.aux

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import asdict
 from pathlib import Path
 from unittest.mock import patch
 
@@ -131,6 +132,17 @@ class PipelineResourceTests(unittest.TestCase):
         self.assertEqual(writer.frames_written, 2)
         self.assertTrue(capture.released)
         self.assertTrue(writer.released)
+
+    def test_run_records_its_complete_effective_configuration(self) -> None:
+        capture = FakeCapture()
+        writer = FakeWriter()
+        with tempfile.TemporaryDirectory() as temp_dir, patch(
+            "app.pipeline.orchestrator.cv2.VideoWriter", return_value=writer
+        ):
+            pipeline = self.make_pipeline(temp_dir, capture, EmptyTracker())
+            with patch.object(pipeline.store, "add_analysis_run") as record_run:
+                pipeline.process("video.mp4")
+            self.assertEqual(record_run.call_args.kwargs["metadata"], asdict(pipeline.config))
 
 
 if __name__ == "__main__":

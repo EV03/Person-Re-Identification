@@ -24,6 +24,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--threshold", type=float, default=None, help="Cosine similarity threshold")
     parser.add_argument("--max-frames", type=int, default=None, help="Max frames to process; 0 processes the full video")
     parser.add_argument("--device", default=None, help="auto, cpu or cuda")
+    parser.add_argument("--checkpoint", default=None, help="Explicit ReID checkpoint path")
+    parser.add_argument("--reid-model", default=None, help="Torchreid architecture name")
     return parser.parse_args()
 
 
@@ -49,6 +51,10 @@ def main() -> None:
         overrides["max_frames"] = args.max_frames
     if args.device is not None:
         overrides["device"] = args.device
+    if args.checkpoint is not None:
+        overrides["reid_checkpoint"] = args.checkpoint
+    if args.reid_model is not None:
+        overrides["reid_model_name"] = args.reid_model
 
     config = mode.to_pipeline_config(**overrides)
     pipeline = PersonReIdPipeline(config=config, paths=paths)
@@ -65,6 +71,8 @@ def main() -> None:
     print(f"Processed frames: {result.processed_frames}")
     print(f"Created persons: {result.created_persons}")
     print(f"Matched events: {result.matched_events}")
+    print(f"Frame predictions: {result.predictions_path}")
+    print(f"Run manifest: {result.manifest_path}")
     if result.warnings:
         print("Warnings:")
         for warning in result.warnings:

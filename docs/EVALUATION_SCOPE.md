@@ -25,6 +25,16 @@ A2 behält Qualitätsgewichtung, Mindestgrößen, Initialpuffer und Snapshot-Aus
 Alle drei Presets enthalten zunächst dieselben sonstigen Parameter. CLI/UI-Overrides
 sind möglich und müssen als Konfigurationsänderung aufgezeichnet werden.
 
+Die UI lädt Presets in einen gemeinsamen, vollständigen Pipeline-Editor. Starten
+und "Aktuelle Einstellungen speichern" verwenden dieselben Parameter. Geänderte
+Läufe werden im Namen markiert; die effektive Pipeline-Konfiguration ist einsehbar
+und wird vollständig in `analysis_runs.metadata_json` festgehalten. Das Speichern
+erstellt ein neues Preset und lädt es; vorhandene Presets werden nicht überschrieben.
+Alle vier konfigurierbaren Matching-/Konfidenz-/Qualitätsschwellen, Mindestgrößen
+und zeitlichen Parameter sind editierbar. Tracker-interne Schwellen bleiben in der
+Tracker-YAML, Konstanten und Gewichte der Qualitätsheuristik bleiben unverändert.
+Diese Einstellbarkeit dient Pilotversuchen, nicht einer Nachkalibrierung auf Testclips.
+
 Die bisherige zusätzliche Bewegungsdiagnostik ist vollständig aus dem aktiven
 Hauptpfad entfernt. Das betrifft Richtungsvektoren, Pixelgeschwindigkeit,
 Sprung-Warnungen, Payload-Felder und eigene UI-Steuerung. Die interne Bewegungsschätzung
@@ -62,30 +72,43 @@ Motion-basierte Neuzuordnung würde eine andere Methode einführen. Bekannte Tra
 behalten weiterhin ihre Personenkennung; qualitätsgefilterte Updates prüfen ihre
 Identität noch nicht erneut. Dies ist im Paper als Einschränkung dokumentiert.
 
-## Vor der abschließenden Evaluation noch erforderlich
+## Die sechs technischen Vorbereitungen sind implementiert
 
-1. Einen expliziten, überprüften OSNet-Checkpoint sowie Paket-/Tracker-Versionen festlegen.
-   Der aktuelle Adapter verwendet `model_path=""`; die Presets garantieren keine
-   ReID-trainierten Gewichte. Die Torchreid-Paketstruktur muss im Installations-Smoke-Test passen.
-2. Alle ausgegebenen Boxen pro Frame exportieren, einschließlich fehlender Personen-ID
-   und leerer Frames. Tracking-ID und Personen-ID getrennt halten. Den tatsächlichen
-   Entscheidungsframe unabhängig vom Snapshotframe speichern.
-3. Versuchseinheiten mit eigenem Datenbank-Ausgangszustand, frischem Tracker und
-   kollisionsfreien Snapshotpfaden ausführen. Für UC-12 Datenbank teilen, Tracker neu starten.
-4. Vollständige Konfiguration, Eingabedatei-/Gewichte-Hashes, Codeversion, Hardware und
-   Zeitmessungen in einem Laufmanifest sichern. `max_frames=0` für vollständige Videos nutzen.
-5. Kleine Referenzfälle und einen annotierten Pilotclip durch Export und Auswertung führen.
-   Danach Parameter und Codeversion für die Testclips festhalten.
+1. OSNet-x1.0 nutzt veröffentlichte MSMT17-ReID-Gewichte, ohne eigenes Training.
+   Download/Herkunft/Prüfsumme sind in [MODEL_WEIGHTS.md](MODEL_WEIGHTS.md) festgehalten.
+   Echter Encoder-Smoke-Test erfolgreich; keine stillen ImageNet-/Teilinitialisierungs-Fallbacks.
+2. Fehlende Trackerkennungen bleiben null. Keine erfundenen Ersatz-IDs, keine
+   Profilbildung mit instabilen IDs; ungetrackte Boxen bleiben im Frame-Export.
+3. `frames.jsonl` exportiert alle ausgegebenen Boxen und leere Frames. Tracking-
+   und Personenkennung bleiben getrennt, Entscheidungs-/Snapshotframe ebenfalls.
+   Keine rückwirkende Personen-ID-Zuweisung. `tracking_mot.txt` enthält echte Track-IDs.
+4. `python -m app.evaluation` erzeugt getrennte Versuchseinheiten pro Variante/
+   Wiederholung und frische Tracker pro Quelle. Nur zusammengehörige Quellen teilen
+   Profile. UI-Läufe verwenden standardmäßig eine neue Datenbank.
+5. Snapshots liegen unter Laufkennung/Personenkennung; Schreibfehler werden erkannt.
+6. Laufmanifest mit vollständiger Konfiguration, tatsächlichen Datei-/Gewichte-/
+   Tracker-Hashes, Codecommit/Dirty-Status/Quellcode-Hash, Paketversionen, Hardware,
+   Zeitmessungen, verarbeiteten Frames und abgeschlossenem/fehlgeschlagenem Status.
+   Die lokale technische Umgebung ist als Versionssnapshot festgehalten.
 
-Weiterhin bekannte technische Grenzen: Ersatz-IDs bei fehlender Tracker-ID,
-kein expliziter Ablauf alter Track-Zustände, mögliche Profilverunreinigung nach ID-Switches,
-Snapshot-Namen ohne Laufkennung und keine Encoder-Versionsprüfung bei gleicher Dimension.
-Diese Punkte nicht als bereits behoben ausweisen. Profilupdate-Änderungen vor dem
-Einfrieren der Methode entscheiden und in allen drei Varianten konsistent halten.
+## Vor der quantitativen Evaluation noch erforderlich
+
+Annotierte Pilot-/Testclips samt Berechtigung/Lizenz auswählen, Metriken gegen
+Ground Truth berechnen, Rückkehrentscheidungen prüfen, danach Code und Parameter
+einfrieren. Bedienung/Format: [EVALUATION_RUNBOOK.md](EVALUATION_RUNBOOK.md).
+Der Versuchsstarter führt noch keine Ground-Truth-/TrackEval-Auswertung durch.
+
+Weiterhin bekannte Grenzen: kein expliziter Ablauf alter Track-Zustände,
+mögliche Profilverunreinigung nach ID-Switches, keine Encoder-Versionsprüfung
+bei gleicher Dimension im bewusst geteilten interaktiven Bestand, nominale
+FPS-Zeitstempel statt ursprünglicher VFR-PTS. Modellwechsel mit neuer Datenbank
+auswerten. Profilupdate-Änderungen konsistent vor dem Einfrieren der Methode entscheiden.
 
 ## Prüfungen für diesen Branch
 
 `python -m unittest discover -s tests -v` prüft den ReID-Umfang und die konkreten
-Korrekturen mit temporären Daten und Fake-Komponenten. Damit wird weder eine
+Korrekturen mit temporären Daten und Fake-Komponenten. Zusätzlich laufen opt-in
+echte Modell-/Video-Tests für B0/A1/A2 mit künstlichen Clips ohne Personen.
+Beide echten Tests sind lokal erfolgreich. Damit wird weder eine
 ReID-Genauigkeit noch eine Echtzeitfähigkeit nachgewiesen. Das Paper enthält dafür
 weiterhin den Versuchsplan und noch nicht erhobene Ergebnisse.

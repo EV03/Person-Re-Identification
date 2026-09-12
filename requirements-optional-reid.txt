@@ -3,4 +3,6 @@
 # Depending on your OS/CUDA setup, install torch from https://pytorch.org/get-started/locally/ first.
 torch>=2.2
 torchvision>=0.17
-torchreid>=0.2.5
+torchreid==0.2.5
+gdown>=5.2
+tensorboard>=2.20

@@ -9,7 +9,7 @@ import numpy as np
 
 @dataclass(frozen=True)
 class Detection:
-    track_id: int
+    track_id: int | None
     bbox_xyxy: tuple[int, int, int, int]
     confidence: float
     class_id: int = 0
@@ -44,6 +44,9 @@ class PipelineResult:
     mode_id: str = "default"
     mode_name: str = "Default ReID MVP"
     pipeline_type: str = "person_reid"
+    predictions_path: Path | None = None
+    tracking_predictions_path: Path | None = None
+    manifest_path: Path | None = None
 
 
 Embedding = np.ndarray

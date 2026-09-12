@@ -149,11 +149,17 @@ def crop_quality_score(
     return float(np.clip(score, 0.0, 1.0)), details
 
 
-def save_crop(crop: np.ndarray, snapshot_dir: Path, person_id: str, frame_index: int) -> Path:
+def save_crop(crop: np.ndarray, snapshot_dir: Path, person_id: str, frame_index: int, *, run_id: str) -> Path:
+    import re
+
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", run_id) or not re.fullmatch(r"[A-Za-z0-9_-]+", person_id):
+        raise ValueError("Snapshot run/person IDs must be plain identifiers, not paths.")
+    snapshot_dir = snapshot_dir / run_id
     person_dir = snapshot_dir / person_id
     person_dir.mkdir(parents=True, exist_ok=True)
     path = person_dir / f"frame_{frame_index:08d}.jpg"
-    cv2.imwrite(str(path), crop)
+    if not cv2.imwrite(str(path), crop):
+        raise OSError(f"Could not write person snapshot: {path}")
     return path
 
 
@@ -164,7 +170,7 @@ def draw_detection(
     score: float | None,
 ) -> None:
     x1, y1, x2, y2 = detection.bbox_xyxy
-    label_parts = [f"track {detection.track_id}"]
+    label_parts = [f"track {detection.track_id}" if detection.track_id is not None else "untracked"]
     if person_id:
         label_parts.append(person_id)
     if score is not None:

@@ -69,6 +69,8 @@ class PipelineConfig:
     yolo_model: str = os.getenv("REID_DEFAULT_MODEL", "yolov8n.pt")
     tracker: str = os.getenv("REID_DEFAULT_TRACKER", "bytetrack.yaml")
     encoder_backend: str = os.getenv("REID_DEFAULT_ENCODER", "torchreid")
+    reid_model_name: str = "osnet_x1_0"
+    reid_checkpoint: str = os.getenv("REID_CHECKPOINT", "data/models/osnet_x1_0_msmt17.pth")
     match_threshold: float = float(os.getenv("REID_DEFAULT_THRESHOLD", "0.82"))
     detection_confidence: float = 0.35
     image_size: int = 640

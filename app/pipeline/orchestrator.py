@@ -8,13 +8,16 @@ orchestrator owns their order, run-local state and lifecycle.  Start with
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
+import time
+from pathlib import Path
+from dataclasses import asdict, dataclass
 from typing import Callable, Protocol
 
 import cv2
 import numpy as np
 
 from app.config import AppPaths, PipelineConfig
+from app.evaluation.artifacts import RunArtifacts, file_reference
 from app.pipeline.detector_tracker import UltralyticsPersonTracker
 from app.pipeline.reid_encoder import build_encoder
 from app.storage.models import PipelineResult
@@ -55,24 +58,22 @@ class TrackEmbeddingCandidate:
 class PersonReIdPipeline:
     """Coordinate one configured person re-identification pipeline.
 
-    Construction loads heavyweight detector and encoder backends.  A call to
-    :meth:`process` then handles exactly one source and returns its artifacts
+    Construction prepares persistence; heavyweight backends are loaded inside
+    :meth:`process` so startup failures receive a manifest. It handles one source and returns its artifacts
     and counters as a ``PipelineResult``.
     """
 
-    def __init__(self, config: PipelineConfig, paths: AppPaths | None = None) -> None:
+    def __init__(self, config: PipelineConfig, paths: AppPaths | None = None, *,
+                 tracker=None, encoder=None, store=None) -> None:
         self.config = config
         self.paths = paths or AppPaths()
         self.paths.ensure()
-        self.store = SQLiteVectorStore(self.paths.db_path)
-        self.tracker = UltralyticsPersonTracker(
-            model_name=config.yolo_model,
-            tracker=config.tracker,
-            confidence=config.detection_confidence,
-            image_size=config.image_size,
-            device=config.device,
-        )
-        self.encoder = build_encoder(config.encoder_backend, device=config.device)
+        self.store = store if store is not None else SQLiteVectorStore(self.paths.db_path)
+        # Lazy loading makes model-start failures visible in the run manifest.
+        # Injected collaborators enable integration tests without model downloads.
+        self.tracker = tracker
+        self.encoder = encoder
+        self._has_processed = False
 
     def _open_capture(self, source: str | int | CameraSource) -> cv2.VideoCapture:
         if isinstance(source, CameraSource):
@@ -110,6 +111,7 @@ class PersonReIdPipeline:
         candidate: TrackEmbeddingCandidate,
         good_frame_count: int,
         quality_average: float | None = None,
+        decision_frame_index: int,
     ) -> dict[str, object]:
         quality_average = candidate.quality_score if quality_average is None else quality_average
         payload: dict[str, object] = {
@@ -117,6 +119,8 @@ class PersonReIdPipeline:
             "mode_id": self.config.mode_id,
             "pipeline_type": self.config.pipeline_type,
             "event_type": event_type,
+            "decision_frame_index": decision_frame_index,
+            "snapshot_frame_index": candidate.frame_index,
             "det_confidence": float(candidate.detection_confidence),
             "quality_score": float(candidate.quality_score),
             "quality_average": float(quality_average),
@@ -144,28 +148,110 @@ class PersonReIdPipeline:
             RuntimeError: If the source cannot be opened.
         """
 
-        resources: list[Releasable] = []
-        cap = self._open_capture(source)
-        resources.append(cap)
+        if getattr(self, "_has_processed", False):
+            raise RuntimeError("A pipeline instance handles one source only; construct a fresh tracker/pipeline for the next run.")
+        self._has_processed = True
+        total_started = time.perf_counter()
+        run_id = make_run_id()
+        artifacts = RunArtifacts(run_id=run_id, config=self.config, paths=self.paths,
+                                 source=self._source_to_label(source))
+        self.last_manifest_path = artifacts.manifest_path
+        resources: list[Releasable] = [artifacts]
+        error: BaseException | None = None
+        result: PipelineResult | None = None
+        load_seconds = 0.0
+        processing_started: float | None = None
         try:
+            self.store.add_analysis_run(
+                run_id=run_id, mode_id=self.config.mode_id, mode_name=self.config.mode_name,
+                pipeline_type=self.config.pipeline_type, source=self._source_to_label(source),
+                fps=None, frame_count=None, width=None, height=None, metadata=asdict(self.config),
+            )
+            load_started = time.perf_counter()
+            try:
+                if getattr(self, "tracker", None) is None:
+                    self.tracker = UltralyticsPersonTracker(
+                        model_name=self.config.yolo_model, tracker=self.config.tracker,
+                        confidence=self.config.detection_confidence, image_size=self.config.image_size,
+                        device=self.config.device,
+                    )
+                if getattr(self, "encoder", None) is None:
+                    self.encoder = build_encoder(
+                        self.config.encoder_backend, device=self.config.device,
+                        model_name=self.config.reid_model_name, checkpoint_path=self.config.reid_checkpoint,
+                    )
+            finally:
+                load_seconds = time.perf_counter() - load_started
+            checkpoint_path = getattr(getattr(self.tracker, "model", None), "ckpt_path", None)
+            if checkpoint_path:
+                artifacts.metadata["models"]["detector"] = file_reference(Path(checkpoint_path))
+            artifacts.metadata["environment"]["requested_device"] = self.config.device
+            artifacts.metadata["environment"]["encoder_device"] = getattr(self.encoder, "device", "cpu")
+            try:
+                import torch
+                artifacts.metadata["environment"]["compute"] = {
+                    "cpu_threads": torch.get_num_threads(), "cuda_available": torch.cuda.is_available(),
+                    "cuda_runtime": torch.version.cuda,
+                    "gpus": [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())],
+                }
+            except ImportError:
+                artifacts.metadata["environment"]["compute"] = {"cuda_available": None}
+            processing_started = time.perf_counter()
+            cap = self._open_capture(source)
+            resources.append(cap)
             if not cap.isOpened():
                 raise RuntimeError(f"Could not open video source: {source}")
-            return self._process_open_capture(
+            result = self._process_open_capture(
                 source,
                 cap,
                 resources,
+                artifacts,
                 progress_callback=progress_callback,
                 frame_callback=frame_callback,
             )
+            return result
+        except BaseException as exc:
+            error = exc
+            raise
         finally:
+            release_error = None
             for resource in reversed(resources):
-                resource.release()
+                try:
+                    resource.release()
+                except Exception as exc:
+                    release_error = release_error or exc
+            final_error = error or release_error
+            status = "failed" if final_error else "completed"
+            processing_seconds = time.perf_counter() - processing_started if processing_started else 0.0
+            try:
+                artifacts.finish(status=status, error=final_error, processing_seconds=processing_seconds,
+                                 model_load_seconds=load_seconds, total_seconds=time.perf_counter() - total_started)
+                finish_run = getattr(self.store, "finish_analysis_run", None)
+                if callable(finish_run):
+                    finish_run(run_id, status=status, processed_frames=artifacts.processed_frames,
+                               error=str(final_error) if final_error else None)
+            except Exception as exc:
+                # A DB finalization failure must not leave a success manifest.
+                if error is None:
+                    try:
+                        artifacts.finish(status="failed", error=exc, processing_seconds=processing_seconds,
+                                         model_load_seconds=load_seconds,
+                                         total_seconds=time.perf_counter() - total_started)
+                    except Exception as artifact_error:
+                        exc.add_note(f"Could not mark the run manifest failed: {artifact_error}")
+                if error is not None:
+                    error.add_note(f"Run finalization also failed: {exc}")
+                else:
+                    raise
+            if release_error is not None and error is None:
+                raise release_error
 
     def _process_open_capture(
         self,
         source: str | int | CameraSource,
         cap: cv2.VideoCapture,
         resources: list[Releasable],
+        artifacts: RunArtifacts,
         progress_callback: ProgressCallback | None = None,
         frame_callback: FrameCallback | None = None,
     ) -> PipelineResult:
@@ -184,10 +270,13 @@ class PersonReIdPipeline:
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1280
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 720
 
-        run_id = make_run_id()
+        run_id = artifacts.metadata["run_id"]
+        artifacts.set_video(fps=float(fps), frame_count=total_frames, width=width, height=height,
+                            fps_fallback=not cap.get(cv2.CAP_PROP_FPS) or cap.get(cv2.CAP_PROP_FPS) <= 1)
         source_label = safe_source_name(self._source_to_label(source))
         mode_label = safe_source_name(self.config.mode_id)
         output_path = self.paths.output_dir / f"{mode_label}_{run_id}_{source_label}.mp4"
+        artifacts.metadata["exports"]["annotated_video"] = str(output_path)
         writer = cv2.VideoWriter(
             str(output_path),
             cv2.VideoWriter_fourcc(*"mp4v"),
@@ -208,18 +297,7 @@ class PersonReIdPipeline:
             frame_count=total_frames,
             width=width,
             height=height,
-            metadata={
-                "yolo_model": self.config.yolo_model,
-                "tracker": self.config.tracker,
-                "encoder_backend": self.config.encoder_backend,
-                "match_threshold": self.config.match_threshold,
-                "detection_confidence": self.config.detection_confidence,
-                "image_size": self.config.image_size,
-                "reid_every_n_frames": self.config.reid_every_n_frames,
-                "min_good_frames_before_reid": self.config.min_good_frames_before_reid,
-                "min_embedding_quality": self.config.min_embedding_quality,
-                "min_update_quality": self.config.min_update_quality,
-            },
+            metadata=asdict(self.config),
         )
 
         # Run-local bridge from the tracker's short-lived IDs to durable person
@@ -245,6 +323,7 @@ class PersonReIdPipeline:
             frame_index += 1
 
             detections = self.tracker.track_frame(frame)
+            frame_predictions: list[dict[str, object]] = []
             # Keep crops independent of boxes and labels drawn for other people.
             display_frame = frame.copy() if self.config.draw_debug else frame
             # Reserve all visible known IDs before visiting unknown tracks.
@@ -257,11 +336,24 @@ class PersonReIdPipeline:
             for detection in detections:
                 person_id = track_to_person.get(detection.track_id)
                 score = track_to_last_score.get(detection.track_id)
+                prediction: dict[str, object] = {
+                    "bbox_xyxy": list(detection.bbox_xyxy), "confidence": float(detection.confidence),
+                    "class_id": detection.class_id, "track_id": detection.track_id, "person_id": person_id,
+                    "match_score": score, "state": "known_track" if person_id else "pending",
+                    "quality_score": None, "decision_frame_index": None, "snapshot_frame_index": None,
+                }
+                frame_predictions.append(prediction)
+                if detection.track_id is None:
+                    prediction["state"] = "untracked"
+                    if self.config.draw_debug:
+                        draw_detection(display_frame, detection, None, None)
+                    continue
                 should_reid = person_id is None or frame_index % max(1, self.config.reid_every_n_frames) == 0
 
                 if should_reid:
                     crop = crop_xyxy(frame, detection.bbox_xyxy, padding=self.config.crop_padding)
                     if not is_valid_crop(crop, self.config.min_crop_width, self.config.min_crop_height):
+                        prediction["state"] = "invalid_crop"
                         skipped_low_quality += 1
                         if self.config.draw_debug:
                             draw_detection(
@@ -280,7 +372,9 @@ class PersonReIdPipeline:
                         min_width=self.config.min_crop_width,
                         min_height=self.config.min_crop_height,
                     )
+                    prediction["quality_score"] = quality_score
                     if quality_score < self.config.min_embedding_quality:
+                        prediction["state"] = "below_candidate_quality"
                         skipped_low_quality += 1
                         if self.config.draw_debug:
                             draw_detection(
@@ -312,6 +406,7 @@ class PersonReIdPipeline:
                             del candidates[0 : len(candidates) - max_buffer_size]
 
                         if len(candidates) < self.config.min_good_frames_before_reid:
+                            prediction["state"] = "waiting_for_initial_observations"
                             waiting_for_good_frames += 1
                             if self.config.draw_debug:
                                 draw_detection(
@@ -345,12 +440,13 @@ class PersonReIdPipeline:
                             self.paths.snapshot_dir,
                             person_id,
                             best_candidate.frame_index,
+                            run_id=run_id,
                         )
                         self.store.add_or_update_person(
                             person_id=person_id,
                             embedding=combined_embedding,
                             source=self._source_to_label(source),
-                            frame_index=best_candidate.frame_index,
+                            frame_index=frame_index,
                             track_id=detection.track_id,
                             bbox_xyxy=best_candidate.bbox_xyxy,
                             score=score,
@@ -361,17 +457,21 @@ class PersonReIdPipeline:
                                 candidate=best_candidate,
                                 good_frame_count=len(candidates),
                                 quality_average=quality_average,
+                                decision_frame_index=frame_index,
                             ),
                         )
 
                         track_to_person[detection.track_id] = person_id
                         track_to_last_score[detection.track_id] = score
                         track_candidates[detection.track_id] = []
+                        prediction.update(person_id=person_id, match_score=score,
+                                          state="created_identity" if match is None else "matched_identity",
+                                          decision_frame_index=frame_index, snapshot_frame_index=best_candidate.frame_index)
 
                     # Known tracks only update their durable profile with a
                     # stricter quality threshold than the initial candidate gate.
                     elif quality_score >= self.config.min_update_quality:
-                        snapshot_path = save_crop(candidate.crop, self.paths.snapshot_dir, person_id, frame_index)
+                        snapshot_path = save_crop(candidate.crop, self.paths.snapshot_dir, person_id, frame_index, run_id=run_id)
                         self.store.add_or_update_person(
                             person_id=person_id,
                             embedding=normalize_vector(candidate.embedding),
@@ -386,9 +486,12 @@ class PersonReIdPipeline:
                                 event_type="quality_gated_update",
                                 candidate=candidate,
                                 good_frame_count=1,
+                                decision_frame_index=frame_index,
                             ),
                         )
+                        prediction.update(state="profile_update", snapshot_frame_index=frame_index)
                     else:
+                        prediction["state"] = "below_update_quality"
                         skipped_low_quality += 1
 
                 if person_id:
@@ -404,6 +507,7 @@ class PersonReIdPipeline:
 
             # Export and UI callbacks see the fully annotated frame.
             writer.write(display_frame)
+            artifacts.record_frame(frame_index, fps, frame_predictions)
 
             if frame_callback and (
                 frame_index == 1 or frame_index % max(1, self.config.live_preview_every_n_frames) == 0
@@ -419,6 +523,12 @@ class PersonReIdPipeline:
                         f"detections: {len(detections)} | skipped low quality: {skipped_low_quality}"
                     ),
                 )
+
+        if frame_index == 0:
+            raise RuntimeError("The source contained no decodable frames.")
+        expected_frames = min(total_frames, self.config.max_frames) if total_frames and self.config.max_frames > 0 else total_frames
+        if isinstance(source, str) and Path(source).is_file() and expected_frames and frame_index < expected_frames:
+            raise RuntimeError(f"Video ended early: processed {frame_index} of {expected_frames} declared/requested frames. Check decoding/container metadata.")
 
         if progress_callback:
             progress_callback(frame_index, total_for_progress, f"[{self.config.mode_id}] Finished")
@@ -442,4 +552,7 @@ class PersonReIdPipeline:
             mode_id=self.config.mode_id,
             mode_name=self.config.mode_name,
             pipeline_type=self.config.pipeline_type,
+            predictions_path=artifacts.predictions_path,
+            tracking_predictions_path=artifacts.tracking_path,
+            manifest_path=artifacts.manifest_path,
         )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from typing import Any
+import os
 
 from app.config import PipelineConfig
 
@@ -22,6 +23,8 @@ class ModeConfig:
     yolo_model: str = "yolov8n.pt"
     tracker: str = "bytetrack.yaml"
     encoder_backend: str = "torchreid"
+    reid_model_name: str = "osnet_x1_0"
+    reid_checkpoint: str = os.getenv("REID_CHECKPOINT", "data/models/osnet_x1_0_msmt17.pth")
     match_threshold: float = 0.82
     detection_confidence: float = 0.35
     image_size: int = 640

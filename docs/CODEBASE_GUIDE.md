@@ -28,8 +28,10 @@ offenen Voraussetzungen für Messungen beschreibt [EVALUATION_SCOPE.md](EVALUATI
 
 ## Ein Lauf
 
-`PersonReIdPipeline` erzeugt im Konstruktor Tracker, Encoder und Store.
-`process()` öffnet die Quelle und sichert die Ressourcenfreigabe.
+`PersonReIdPipeline` erzeugt im Konstruktor den Store. Tracker, Encoder und Store
+können für Tests injiziert werden. `process()` erstellt zuerst Laufartefakte und
+registriert den Lauf, lädt danach die Modelle, öffnet die Quelle und sichert die
+Ressourcenfreigabe. Eine Pipelineinstanz darf nur eine Quelle verarbeiten.
 `_process_open_capture()` liest Metadaten, öffnet den Writer, registriert den Lauf
 und verarbeitet Frames.
 
@@ -41,7 +43,7 @@ Je Frame:
 4. Unbekannte Tracks sammeln geeignete Crops; bekannte Tracks werden periodisch aktualisiert.
 5. Ein neuer Track sucht mit dem kombinierten Embedding ein Profil oder erhält eine neue Personen-ID.
 6. Profil und ausgewähltes Ereignis werden gespeichert.
-7. Ausgabekopie schreiben und gegebenenfalls Vorschau aktualisieren.
+7. Ausgabekopie und vollständigen Frame-Export schreiben, gegebenenfalls Vorschau aktualisieren.
 
 ## Zustände verstehen
 
@@ -68,6 +70,23 @@ Eigene Presets werden unter `AppPaths.mode_config_path` gespeichert:
 `data/modes/reid_presets.json`. Es werden nur `person_reid`-Presets akzeptiert.
 Built-in-IDs dürfen nicht durch gespeicherte Presets überschrieben werden.
 
+Die UI verwendet nur einen Parametereditor. `app/ui/config_editor.py` definiert
+die Laufzeitfelder aus `PipelineConfig`, vergleicht aktuelle Werte mit dem geladenen
+Preset und überträgt dieselben Werte an Pipeline und neues Preset. Metadaten wie
+Name und Beschreibung werden beim Speichern separat vergeben. Ein geänderter
+Laufname erhält den Zusatz "(geändert)"; das Ausgangspreset bleibt unverändert.
+
+`streamlit_app.py` hält Editorwerte in expliziten `pipeline_*`-Session-Schlüsseln.
+Sie werden nur beim Presetwechsel oder beim expliziten Zurücksetzen neu geladen,
+nicht bei jeder Interaktion. Nach dem Speichern wird die Auswahl vor der nächsten
+Widget-Erzeugung auf das neue Preset gesetzt. Neue Laufzeitfelder müssen auch ein
+Editorwidget erhalten; ein Test prüft die vollständige, eindeutige Feldabdeckung.
+Alle effektiven `PipelineConfig`-Werte werden in `analysis_runs.metadata_json`
+gespeichert. `app/evaluation/artifacts.py` ergänzt das Laufmanifest mit Hashes,
+Hardwaredaten, Paketversionen, Zeitmessungen und Abschlussstatus.
+`app/evaluation/runner.py` erzeugt frische Versuchsdatenbanken und neue Pipelines
+pro Quelle; nur zusammengehörige Quellen innerhalb einer Einheit teilen Profile.
+
 ## Datenbank und Matching
 
 `SQLiteVectorStore.search()` lädt alle Personenprofile, überspringt andere
@@ -78,9 +97,10 @@ Gleiche Dimension garantiert keine kompatiblen Modellgewichte. Ein Encoderwechse
 braucht einen definierten neuen Bestand. Neue Datenbanken enthalten nur die drei
 ReID-Tabellen. Alte Zusatzdaten werden nicht gelöscht.
 
-Snapshots und Datenbank-Events sind Diagnosehilfen. Sie ersetzen keine
-vollständigen Vorhersagen pro Frame. Für die Evaluation müssen Entscheidungszeit,
-ausbleibende Zuweisungen und alle ausgegebenen Boxen exportiert werden.
+Snapshots und Datenbank-Events sind Diagnosehilfen. `frames.jsonl` enthält dagegen
+alle ausgegebenen Boxen und auch leere Frames. Fehlende Track-/Personenkennungen
+bleiben null; der tatsächliche Entscheidungsframe wird nicht auf den früheren
+Snapshotframe zurückdatiert. Details: [EVALUATION_RUNBOOK.md](EVALUATION_RUNBOOK.md).
 
 ## Häufige Fehler gezielt untersuchen
 

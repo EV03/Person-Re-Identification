@@ -11,8 +11,10 @@ Video/Webcam, YOLO-Personendetektion, ByteTrack/BoT-SORT, qualitätsgefilterte
 Person-Crops, Initialpuffer, OSNet/Farbhistogramm, Cosine Matching, synthetische
 Personen-IDs, SQLite, annotierte Videos und Streamlit-Vorschau.
 
-B0/A1/A2 sind als Presets vorhanden. Ein vollständiger Vorhersageexport,
-definierte Modellgewichte und automatisierte isolierte Versuchsläufe stehen noch aus.
+B0/A1/A2 sind als Presets vorhanden. OSNet-x1.0 nutzt dokumentierte MSMT17-Gewichte
+ohne eigenes Fine-Tuning. Vollständige Frame-Exporte, getrennte Entscheidungs-/
+Snapshotframes, isolierte Versuchseinheiten und Laufmanifeste sind implementiert.
+Die quantitative Evaluation und Auswertung annotierter Clips stehen noch aus.
 Es liegen keine aus diesem Stand erhobenen quantitativen Ergebnisse vor.
 
 ## Versionsabgrenzung
