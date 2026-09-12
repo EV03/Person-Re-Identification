@@ -1,33 +1,39 @@
+"""The three controlled ReID presets used in the evaluation plan."""
+
 from __future__ import annotations
+
+from dataclasses import replace
 
 from app.modes.base_mode import ModeConfig
 
 
 def build_default_mode() -> ModeConfig:
-    """Current project state as named default mode."""
+    """B0: OSNet, quality gates and three initial observations."""
     return ModeConfig(
         mode_id="default",
-        name="Default ReID MVP",
-        description=(
-            "Bisheriger Stand: generische Personenerkennung, Tracking, "
-            "Torchreid/OSNet-ReID, SQLite-Speicherung und Live-Preview."
-        ),
-        pipeline_type="person_reid",
-        yolo_model="yolov8n.pt",
-        tracker="bytetrack.yaml",
-        encoder_backend="torchreid",
-        match_threshold=0.82,
-        detection_confidence=0.35,
-        image_size=640,
-        reid_every_n_frames=5,
-        min_good_frames_before_reid=3,
-        min_embedding_quality=0.55,
-        min_update_quality=0.65,
-        max_frames=500,
-        device="auto",
-        enable_motion_analysis=True,
-        draw_motion_vectors=True,
-        motion_max_jump_fraction=0.20,
-        motion_smoothing_alpha=0.35,
-        motion_min_displacement_px=2.0,
+        name="B0 - OSNet",
+        description="Referenz: OSNet, qualitätsgefilterte Crops und drei Initialbeobachtungen.",
+    )
+
+
+def build_colorhist_mode() -> ModeConfig:
+    """A1 differs from B0 only in the encoder."""
+    return replace(
+        build_default_mode(),
+        mode_id="colorhist",
+        name="A1 - Farbhistogramm",
+        description="B0 mit Farbhistogramm statt OSNet; alle übrigen Parameter bleiben gleich.",
+        encoder_backend="colorhist",
+    )
+
+
+def build_no_quality_thresholds_mode() -> ModeConfig:
+    """A2 disables acceptance thresholds, not size checks or quality weights."""
+    return replace(
+        build_default_mode(),
+        mode_id="no_quality_thresholds",
+        name="A2 - Ohne Qualitätsschwellen",
+        description="B0 mit beiden Qualitätsschwellen auf null; Mindestgrößen und Gewichtung bleiben erhalten.",
+        min_embedding_quality=0.0,
+        min_update_quality=0.0,
     )

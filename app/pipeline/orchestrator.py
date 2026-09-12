@@ -21,7 +21,6 @@ from app.storage.models import PipelineResult
 from app.storage.vector_store import SQLiteVectorStore
 from app.utils.camera_utils import CameraSource, open_camera_capture
 from app.utils.id_utils import make_run_id, safe_source_name
-from app.utils.motion_utils import MotionSnapshot, MotionTracker
 from app.utils.image_utils import (
     crop_quality_score,
     crop_xyxy,
@@ -103,15 +102,6 @@ class PersonReIdPipeline:
             raise ValueError("Cannot select a best candidate from an empty candidate list.")
         return max(candidates, key=lambda candidate: candidate.quality_score)
 
-    def _mode_warning(self) -> str | None:
-        if self.config.pipeline_type != "football_analysis":
-            return None
-        return (
-            "Football mode v1 uses the stable Default ReID pipeline. "
-            "Ball tracking, pitch mapping, team classification and stats aggregation "
-            "are prepared as mode flags/placeholders and must be wired in next."
-        )
-
     def _quality_payload(
         self,
         *,
@@ -120,7 +110,6 @@ class PersonReIdPipeline:
         candidate: TrackEmbeddingCandidate,
         good_frame_count: int,
         quality_average: float | None = None,
-        motion: MotionSnapshot | None = None,
     ) -> dict[str, object]:
         quality_average = candidate.quality_score if quality_average is None else quality_average
         payload: dict[str, object] = {
@@ -136,12 +125,6 @@ class PersonReIdPipeline:
             "snapshot_quality": float(candidate.quality_score),
             "quality_details": {key: float(value) for key, value in candidate.quality_details.items()},
         }
-        if motion is not None:
-            payload["motion"] = motion.to_payload()
-            payload["motion_direction"] = motion.direction_label
-            payload["motion_speed_px_per_sec"] = float(motion.speed_px_per_sec)
-            payload["motion_plausibility_score"] = float(motion.plausibility_score)
-            payload["motion_is_large_jump"] = bool(motion.is_large_jump)
         return payload
 
     def process(
@@ -236,15 +219,6 @@ class PersonReIdPipeline:
                 "min_good_frames_before_reid": self.config.min_good_frames_before_reid,
                 "min_embedding_quality": self.config.min_embedding_quality,
                 "min_update_quality": self.config.min_update_quality,
-                "enable_motion_analysis": self.config.enable_motion_analysis,
-                "draw_motion_vectors": self.config.draw_motion_vectors,
-                "motion_max_jump_fraction": self.config.motion_max_jump_fraction,
-                "motion_smoothing_alpha": self.config.motion_smoothing_alpha,
-                "motion_min_displacement_px": self.config.motion_min_displacement_px,
-                "enable_ball_tracking": self.config.enable_ball_tracking,
-                "enable_pitch_mapping": self.config.enable_pitch_mapping,
-                "enable_team_classification": self.config.enable_team_classification,
-                "enable_stats_aggregation": self.config.enable_stats_aggregation,
             },
         )
 
@@ -253,24 +227,12 @@ class PersonReIdPipeline:
         track_to_person: dict[int, str] = {}
         track_to_last_score: dict[int, float | None] = {}
         track_candidates: dict[int, list[TrackEmbeddingCandidate]] = {}
-        motion_tracker = MotionTracker(
-            fps=float(fps),
-            frame_width=width,
-            frame_height=height,
-            max_jump_fraction=self.config.motion_max_jump_fraction,
-            smoothing_alpha=self.config.motion_smoothing_alpha,
-            min_displacement_px=self.config.motion_min_displacement_px,
-        )
         created_persons = 0
         matched_events = 0
         frame_index = 0
         skipped_low_quality = 0
         waiting_for_good_frames = 0
-        large_motion_jumps = 0
         warnings: list[str] = []
-        mode_warning = self._mode_warning()
-        if mode_warning:
-            warnings.append(mode_warning)
 
         # Hot path: read -> track -> quality gate -> encode/match -> draw/write.
         while True:
@@ -283,18 +245,18 @@ class PersonReIdPipeline:
             frame_index += 1
 
             detections = self.tracker.track_frame(frame)
-            used_person_ids_this_frame: set[str] = set()
+            # Keep crops independent of boxes and labels drawn for other people.
+            display_frame = frame.copy() if self.config.draw_debug else frame
+            # Reserve all visible known IDs before visiting unknown tracks.
+            used_person_ids_this_frame = {
+                track_to_person[detection.track_id]
+                for detection in detections
+                if detection.track_id in track_to_person
+            }
 
             for detection in detections:
                 person_id = track_to_person.get(detection.track_id)
                 score = track_to_last_score.get(detection.track_id)
-                motion = motion_tracker.update(
-                    track_id=detection.track_id,
-                    bbox_xyxy=detection.bbox_xyxy,
-                    frame_index=frame_index,
-                ) if self.config.enable_motion_analysis else None
-                if motion is not None and motion.is_large_jump:
-                    large_motion_jumps += 1
                 should_reid = person_id is None or frame_index % max(1, self.config.reid_every_n_frames) == 0
 
                 if should_reid:
@@ -303,12 +265,10 @@ class PersonReIdPipeline:
                         skipped_low_quality += 1
                         if self.config.draw_debug:
                             draw_detection(
-                                frame,
+                                display_frame,
                                 detection,
                                 person_id,
                                 score,
-                                motion=motion,
-                                draw_motion=self.config.draw_motion_vectors,
                             )
                         continue
 
@@ -324,12 +284,10 @@ class PersonReIdPipeline:
                         skipped_low_quality += 1
                         if self.config.draw_debug:
                             draw_detection(
-                                frame,
+                                display_frame,
                                 detection,
                                 person_id,
                                 score,
-                                motion=motion,
-                                draw_motion=self.config.draw_motion_vectors,
                             )
                         continue
 
@@ -357,13 +315,11 @@ class PersonReIdPipeline:
                             waiting_for_good_frames += 1
                             if self.config.draw_debug:
                                 draw_detection(
-                                frame,
-                                detection,
-                                person_id,
-                                score,
-                                motion=motion,
-                                draw_motion=self.config.draw_motion_vectors,
-                            )
+                                    display_frame,
+                                    detection,
+                                    person_id,
+                                    score,
+                                )
                             continue
 
                         combined_embedding = self._combined_embedding(candidates)
@@ -405,7 +361,6 @@ class PersonReIdPipeline:
                                 candidate=best_candidate,
                                 good_frame_count=len(candidates),
                                 quality_average=quality_average,
-                                motion=motion,
                             ),
                         )
 
@@ -431,7 +386,6 @@ class PersonReIdPipeline:
                                 event_type="quality_gated_update",
                                 candidate=candidate,
                                 good_frame_count=1,
-                                motion=motion,
                             ),
                         )
                     else:
@@ -442,21 +396,19 @@ class PersonReIdPipeline:
 
                 if self.config.draw_debug:
                     draw_detection(
-                                frame,
-                                detection,
-                                person_id,
-                                score,
-                                motion=motion,
-                                draw_motion=self.config.draw_motion_vectors,
-                            )
+                        display_frame,
+                        detection,
+                        person_id,
+                        score,
+                    )
 
             # Export and UI callbacks see the fully annotated frame.
-            writer.write(frame)
+            writer.write(display_frame)
 
             if frame_callback and (
                 frame_index == 1 or frame_index % max(1, self.config.live_preview_every_n_frames) == 0
             ):
-                frame_callback(frame_index, frame)
+                frame_callback(frame_index, display_frame)
 
             if progress_callback and (frame_index == 1 or frame_index % 10 == 0):
                 progress_callback(
@@ -476,11 +428,6 @@ class PersonReIdPipeline:
         if waiting_for_good_frames > 0:
             warnings.append(
                 "Some tracks were not assigned immediately because the pipeline waited for enough good frames."
-            )
-        if large_motion_jumps > 0:
-            warnings.append(
-                f"Motion analysis detected {large_motion_jumps} large track jumps. "
-                "Check these scenes for ID switches or camera cuts."
             )
 
         persons = self.store.list_persons()

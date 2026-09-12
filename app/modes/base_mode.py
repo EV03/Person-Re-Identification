@@ -10,9 +10,8 @@ from app.config import PipelineConfig
 class ModeConfig:
     """Configuration preset for a selectable analysis mode.
 
-    A mode describes the intent of a run and provides defaults for the existing
-    pipeline. The actual processing code can stay small while new modes can add
-    their own flags and future modules step by step.
+    Presets configure the same person-ReID pipeline. Built-in presets represent
+    B0, A1 and A2 from the evaluation plan; custom presets support pilot runs.
     """
 
     mode_id: str
@@ -37,23 +36,18 @@ class ModeConfig:
     device: str = "auto"
     draw_debug: bool = True
     live_preview_every_n_frames: int = 10
-    enable_motion_analysis: bool = True
-    draw_motion_vectors: bool = True
-    motion_max_jump_fraction: float = 0.20
-    motion_smoothing_alpha: float = 0.35
-    motion_min_displacement_px: float = 2.0
-
-    enable_ball_tracking: bool = False
-    enable_pitch_mapping: bool = False
-    enable_team_classification: bool = False
-    enable_stats_aggregation: bool = False
 
     is_custom: bool = False
+
+    def __post_init__(self) -> None:
+        if self.pipeline_type != "person_reid":
+            raise ValueError("Only person_reid presets are supported on this branch.")
 
     def to_pipeline_config(self, **overrides: Any) -> PipelineConfig:
         values = asdict(self)
         supported_fields = PipelineConfig.__dataclass_fields__.keys()
         values = {key: value for key, value in values.items() if key in supported_fields}
+        values["mode_name"] = self.name
         values.update(overrides)
         return PipelineConfig(**values)
 

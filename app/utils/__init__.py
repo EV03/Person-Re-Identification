@@ -1,1 +1,1 @@
-"""Shared camera, image, motion and identifier helpers."""
+"""Shared camera, image, upload and identifier helpers."""

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 
 from app.config import AppPaths
 from app.modes.mode_registry import get_mode, list_modes
@@ -23,7 +22,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tracker", default=None, help="Tracker config: bytetrack.yaml or botsort.yaml")
     parser.add_argument("--encoder", default=None, choices=["colorhist", "torchreid"], help="ReID encoder backend")
     parser.add_argument("--threshold", type=float, default=None, help="Cosine similarity threshold")
-    parser.add_argument("--max-frames", type=int, default=None, help="Max frames to process")
+    parser.add_argument("--max-frames", type=int, default=None, help="Max frames to process; 0 processes the full video")
     parser.add_argument("--device", default=None, help="auto, cpu or cuda")
     return parser.parse_args()
 

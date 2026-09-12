@@ -10,7 +10,13 @@ data/db/*.sqlite3-*
 data/input/*
 data/output/*
 data/snapshots/*
-data/qdrant/*
+data/modes/*.json
+output/
+tmp/
+*.aux
+*.log
+*.out
+*.synctex.gz
 !data/input/.gitkeep
 !data/output/.gitkeep
 !data/snapshots/.gitkeep

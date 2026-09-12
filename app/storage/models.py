@@ -46,35 +46,5 @@ class PipelineResult:
     pipeline_type: str = "person_reid"
 
 
-@dataclass(frozen=True)
-class FootballPlayerFrameEvent:
-    run_id: str
-    frame_index: int
-    timestamp_sec: float
-    track_id: int
-    player_id: str | None
-    team_id: str | None
-    bbox_xyxy: tuple[int, int, int, int]
-    confidence: float
-    pitch_x: float | None = None
-    pitch_y: float | None = None
-    speed_mps: float | None = None
-    distance_delta_m: float | None = None
-
-
-@dataclass(frozen=True)
-class FootballBallFrameEvent:
-    run_id: str
-    frame_index: int
-    timestamp_sec: float
-    bbox_xyxy: tuple[int, int, int, int] | None
-    confidence: float | None = None
-    pitch_x: float | None = None
-    pitch_y: float | None = None
-    speed_mps: float | None = None
-    nearest_player_id: str | None = None
-    nearest_team_id: str | None = None
-
-
 Embedding = np.ndarray
 Payload = dict[str, Any]

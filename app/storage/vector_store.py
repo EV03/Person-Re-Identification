@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -28,10 +30,16 @@ class SQLiteVectorStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        """Commit or roll back a transaction and always close its connection."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     @staticmethod
     def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, definition: str) -> None:
@@ -98,102 +106,6 @@ class SQLiteVectorStore:
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_analysis_runs_mode_id ON analysis_runs(mode_id)")
 
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS teams (
-                    team_id TEXT NOT NULL,
-                    run_id TEXT NOT NULL,
-                    name TEXT,
-                    primary_color TEXT,
-                    secondary_color TEXT,
-                    metadata_json TEXT,
-                    PRIMARY KEY(team_id, run_id),
-                    FOREIGN KEY(run_id) REFERENCES analysis_runs(run_id)
-                )
-                """
-            )
-
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS players (
-                    player_id TEXT NOT NULL,
-                    run_id TEXT NOT NULL,
-                    team_id TEXT,
-                    display_label TEXT,
-                    jersey_number TEXT,
-                    created_at TEXT NOT NULL,
-                    metadata_json TEXT,
-                    PRIMARY KEY(player_id, run_id),
-                    FOREIGN KEY(run_id) REFERENCES analysis_runs(run_id)
-                )
-                """
-            )
-
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS player_frame_events (
-                    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    run_id TEXT NOT NULL,
-                    frame_index INTEGER NOT NULL,
-                    timestamp_sec REAL,
-                    track_id INTEGER,
-                    player_id TEXT,
-                    team_id TEXT,
-                    bbox_json TEXT NOT NULL,
-                    pitch_x REAL,
-                    pitch_y REAL,
-                    speed_mps REAL,
-                    distance_delta_m REAL,
-                    confidence REAL,
-                    payload_json TEXT,
-                    FOREIGN KEY(run_id) REFERENCES analysis_runs(run_id)
-                )
-                """
-            )
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_player_frame_events_run ON player_frame_events(run_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_player_frame_events_player ON player_frame_events(player_id)")
-
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS ball_frame_events (
-                    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    run_id TEXT NOT NULL,
-                    frame_index INTEGER NOT NULL,
-                    timestamp_sec REAL,
-                    bbox_json TEXT,
-                    pitch_x REAL,
-                    pitch_y REAL,
-                    speed_mps REAL,
-                    nearest_player_id TEXT,
-                    nearest_team_id TEXT,
-                    confidence REAL,
-                    payload_json TEXT,
-                    FOREIGN KEY(run_id) REFERENCES analysis_runs(run_id)
-                )
-                """
-            )
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_ball_frame_events_run ON ball_frame_events(run_id)")
-
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS player_stats (
-                    run_id TEXT NOT NULL,
-                    player_id TEXT NOT NULL,
-                    team_id TEXT,
-                    visible_seconds REAL,
-                    distance_m REAL,
-                    avg_speed_mps REAL,
-                    max_speed_mps REAL,
-                    sprint_count INTEGER,
-                    ball_near_seconds REAL,
-                    possession_seconds REAL,
-                    heatmap_json TEXT,
-                    payload_json TEXT,
-                    PRIMARY KEY(run_id, player_id),
-                    FOREIGN KEY(run_id) REFERENCES analysis_runs(run_id)
-                )
-                """
-            )
 
     @staticmethod
     def _vector_to_json(vector: np.ndarray) -> str:
@@ -450,10 +362,6 @@ class SQLiteVectorStore:
             record["quality_score"] = payload.get("quality_score")
             record["quality_average"] = payload.get("quality_average")
             record["good_frame_count"] = payload.get("good_frame_count")
-            record["motion_direction"] = payload.get("motion_direction")
-            record["motion_speed_px_per_sec"] = payload.get("motion_speed_px_per_sec")
-            record["motion_plausibility_score"] = payload.get("motion_plausibility_score")
-            record["motion_is_large_jump"] = payload.get("motion_is_large_jump")
             records.append(record)
 
         return pd.DataFrame(records)

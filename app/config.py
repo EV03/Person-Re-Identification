@@ -43,7 +43,7 @@ class AppPaths:
 
     @property
     def mode_config_path(self) -> Path:
-        return self.mode_dir / "custom_modes.json"
+        return self.mode_dir / "reid_presets.json"
 
     def ensure(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -83,14 +83,9 @@ class PipelineConfig:
     device: str = "auto"
     draw_debug: bool = True
     live_preview_every_n_frames: int = 10
-    enable_motion_analysis: bool = True
-    draw_motion_vectors: bool = True
-    motion_max_jump_fraction: float = 0.20
-    motion_smoothing_alpha: float = 0.35
-    motion_min_displacement_px: float = 2.0
 
-    enable_ball_tracking: bool = False
-    enable_pitch_mapping: bool = False
-    enable_team_classification: bool = False
-    enable_stats_aggregation: bool = False
     is_custom: bool = False
+
+    def __post_init__(self) -> None:
+        if self.pipeline_type != "person_reid":
+            raise ValueError("Only the person_reid pipeline is supported on this branch.")

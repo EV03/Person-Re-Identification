@@ -13,12 +13,12 @@ from pathlib import Path
 
 from app.config import AppPaths
 from app.modes.base_mode import ModeConfig
-from app.modes.default_mode import build_default_mode
-from app.modes.football_mode import build_football_mode
+from app.modes.default_mode import build_colorhist_mode, build_default_mode, build_no_quality_thresholds_mode
 
 _BUILTIN_MODES = (
     build_default_mode,
-    build_football_mode,
+    build_colorhist_mode,
+    build_no_quality_thresholds_mode,
 )
 
 
@@ -55,10 +55,11 @@ def load_custom_modes(paths: AppPaths | None = None) -> dict[str, ModeConfig]:
     for item in raw.get("modes", []):
         try:
             mode = ModeConfig.from_json_dict(item)
-        except TypeError:
+        except (TypeError, ValueError):
             continue
         mode = ModeConfig.from_json_dict({**mode.to_json_dict(), "is_custom": True})
-        modes[mode.mode_id] = mode
+        if mode.mode_id not in builtin_modes():
+            modes[mode.mode_id] = mode
     return modes
 
 

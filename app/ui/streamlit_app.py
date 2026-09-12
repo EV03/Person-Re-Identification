@@ -16,7 +16,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import cv2
-import pandas as pd
 import streamlit as st
 
 from app.config import AppPaths
@@ -65,8 +64,8 @@ def option_index(options: list[str], value: str, fallback: int = 0) -> int:
 def render_create_mode_form(paths: AppPaths, modes: dict[str, ModeConfig]) -> None:
     with st.expander("Create custom mode preset"):
         st.caption(
-            "Ein Custom Mode speichert nur Konfiguration und Feature-Flags. "
-            "Die eigentliche Pipeline bleibt zunächst stabil und kann später modular erweitert werden."
+            "Ein Preset speichert Parameter derselben ReID-Pipeline. "
+            "Eigene Varianten dienen Pilotversuchen; B0/A1/A2 bleiben als Referenzen verfügbar."
         )
         with st.form("create_custom_mode_form"):
             base_mode_id = st.selectbox(
@@ -75,17 +74,12 @@ def render_create_mode_form(paths: AppPaths, modes: dict[str, ModeConfig]) -> No
                 format_func=lambda mode_id: f"{modes[mode_id].name} ({mode_id})",
             )
             base_mode = modes[base_mode_id]
-            custom_name = st.text_input("Mode name", value="My Football Variant")
-            custom_mode_id_raw = st.text_input("Mode id", value="my_football_variant")
+            custom_name = st.text_input("Mode name", value="Mein ReID-Pilot")
+            custom_mode_id_raw = st.text_input("Mode id", value="mein_reid_pilot")
             custom_description = st.text_area(
                 "Description",
                 value="Custom preset for a specific video analysis setup.",
                 height=80,
-            )
-            custom_pipeline_type = st.selectbox(
-                "Pipeline type",
-                options=["person_reid", "football_analysis"],
-                index=option_index(["person_reid", "football_analysis"], base_mode.pipeline_type),
             )
 
             col_a, col_b = st.columns(2)
@@ -117,26 +111,11 @@ def render_create_mode_form(paths: AppPaths, modes: dict[str, ModeConfig]) -> No
                     step=0.05,
                 )
                 custom_max_frames = st.number_input(
-                    "Max frames default",
-                    min_value=1,
+                    "Max frames default (0 = vollständiges Video)",
+                    min_value=0,
                     max_value=100000,
                     value=int(base_mode.max_frames),
                     step=50,
-                )
-
-            st.write("Football feature flags")
-            flag_col_1, flag_col_2 = st.columns(2)
-            with flag_col_1:
-                enable_ball_tracking = st.checkbox("Prepare ball tracking", value=base_mode.enable_ball_tracking)
-                enable_pitch_mapping = st.checkbox("Prepare pitch mapping", value=base_mode.enable_pitch_mapping)
-            with flag_col_2:
-                enable_team_classification = st.checkbox(
-                    "Prepare team classification",
-                    value=base_mode.enable_team_classification,
-                )
-                enable_stats_aggregation = st.checkbox(
-                    "Prepare stats aggregation",
-                    value=base_mode.enable_stats_aggregation,
                 )
 
             submitted = st.form_submit_button("Save custom mode")
@@ -148,7 +127,6 @@ def render_create_mode_form(paths: AppPaths, modes: dict[str, ModeConfig]) -> No
                     mode_id=custom_mode_id,
                     name=custom_name.strip() or custom_mode_id,
                     description=custom_description.strip(),
-                    pipeline_type=custom_pipeline_type,
                     yolo_model=custom_yolo_model,
                     tracker=custom_tracker,
                     encoder_backend=custom_encoder,
@@ -166,15 +144,6 @@ def render_create_mode_form(paths: AppPaths, modes: dict[str, ModeConfig]) -> No
                     device=base_mode.device,
                     draw_debug=base_mode.draw_debug,
                     live_preview_every_n_frames=base_mode.live_preview_every_n_frames,
-                    enable_motion_analysis=base_mode.enable_motion_analysis,
-                    draw_motion_vectors=base_mode.draw_motion_vectors,
-                    motion_max_jump_fraction=base_mode.motion_max_jump_fraction,
-                    motion_smoothing_alpha=base_mode.motion_smoothing_alpha,
-                    motion_min_displacement_px=base_mode.motion_min_displacement_px,
-                    enable_ball_tracking=bool(enable_ball_tracking),
-                    enable_pitch_mapping=bool(enable_pitch_mapping),
-                    enable_team_classification=bool(enable_team_classification),
-                    enable_stats_aggregation=bool(enable_stats_aggregation),
                     is_custom=True,
                 )
                 saved = save_custom_mode(custom_mode, paths=paths, overwrite=False)
@@ -190,25 +159,20 @@ paths = AppPaths()
 paths.ensure()
 
 st.title("Local Person Re-Identification MVP")
-st.caption("Lokales Demo-Setup mit auswählbaren Modi, YOLO Tracking, ReID Embeddings und SQLite Vector Store")
+st.caption("Forschungsprototyp: YOLO, Tracking, qualitätsgefilterte ReID und lokale SQLite-Speicherung")
+st.caption("B0/A1/A2 sind Konfigurationsvorlagen. Modellgewichte und vollständiger Messdatenexport müssen vor der Evaluation festgelegt werden.")
 
 modes = list_modes(paths)
 
 with st.sidebar:
-    st.header("Mode")
+    st.header("Versuchskonfiguration")
     selected_mode_id = st.selectbox(
-        "Analysis mode",
+        "ReID preset",
         options=list(modes.keys()),
         format_func=lambda mode_id: f"{modes[mode_id].name} ({mode_id})",
     )
     selected_mode = modes[selected_mode_id]
     st.caption(selected_mode.description)
-
-    if selected_mode.pipeline_type == "football_analysis":
-        st.info(
-            "Football Mode v1 nutzt aktuell noch die stabile Default-ReID-Pipeline. "
-            "Balltracking, Teamklassifikation, Pitch Mapping und Statistiken sind vorbereitet, aber noch nicht vollständig verdrahtet."
-        )
 
     render_create_mode_form(paths, modes)
 
@@ -274,8 +238,8 @@ with st.sidebar:
         help="Bestehende Personen-Embeddings werden nur mit Crops ab diesem Qualitätswert aktualisiert.",
     )
     max_frames = st.number_input(
-        "Max frames",
-        min_value=1,
+        "Max frames (0 = vollständiges Video)",
+        min_value=0,
         max_value=100000,
         value=int(selected_mode.max_frames),
         step=50,
@@ -286,38 +250,6 @@ with st.sidebar:
         index=option_index([320, 480, 640, 960, 1280], selected_mode.image_size, fallback=2),
     )
     device = st.selectbox("Device", ["auto", "cpu", "cuda"], index=option_index(["auto", "cpu", "cuda"], selected_mode.device))
-
-    st.divider()
-    st.header("Motion Analysis")
-    enable_motion_analysis = st.checkbox(
-        "Enable movement direction analysis",
-        value=bool(selected_mode.enable_motion_analysis),
-        help="Berechnet pro Track Bewegungsrichtung, Geschwindigkeit und Sprung-Plausibilität im Bildraum.",
-    )
-    draw_motion_vectors = st.checkbox(
-        "Draw movement arrows",
-        value=bool(selected_mode.draw_motion_vectors),
-        disabled=not enable_motion_analysis,
-        help="Zeichnet Richtungspfeile im Live-/Output-Bild. Rote Boxen markieren große Sprünge.",
-    )
-    motion_max_jump_fraction = st.slider(
-        "Max jump fraction",
-        min_value=0.05,
-        max_value=0.80,
-        value=float(selected_mode.motion_max_jump_fraction),
-        step=0.05,
-        disabled=not enable_motion_analysis,
-        help="Maximal tolerierte Track-Verschiebung relativ zur Bilddiagonale. Größere Sprünge werden als auffällig markiert.",
-    )
-    motion_smoothing_alpha = st.slider(
-        "Motion smoothing",
-        min_value=0.00,
-        max_value=1.00,
-        value=float(selected_mode.motion_smoothing_alpha),
-        step=0.05,
-        disabled=not enable_motion_analysis,
-        help="Glättung der Richtungspfeile. Höher = reagiert schneller, niedriger = ruhiger.",
-    )
 
     st.divider()
     st.header("Live Display")
@@ -445,10 +377,6 @@ if run_clicked and source is not None:
         max_frames=int(max_frames),
         device=device,
         live_preview_every_n_frames=int(preview_every_n_frames),
-        enable_motion_analysis=bool(enable_motion_analysis),
-        draw_motion_vectors=bool(draw_motion_vectors),
-        motion_max_jump_fraction=float(motion_max_jump_fraction),
-        motion_smoothing_alpha=float(motion_smoothing_alpha),
     )
 
     progress = st.progress(0)

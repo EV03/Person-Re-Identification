@@ -76,7 +76,6 @@ class PipelineResourceTests(unittest.TestCase):
             encoder_backend="colorhist",
             max_frames=2,
             draw_debug=False,
-            enable_motion_analysis=False,
         )
         base = Path(temp_dir)
         pipeline.paths = AppPaths(

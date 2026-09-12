@@ -1,5 +1,5 @@
 % Workshop-Paper zum Masterprojekt (12 CP), Springer-LLNCS-Layout.
-% Dokumentierter Systemstand: 02.09.2026; Überarbeitung: 12.09.2026.
+% Dokumentierter Umfang: bereinigter ReID-Kern auf main; Stand: 12.09.2026.
 % Evaluation geplant, Ergebnisse noch nicht erhoben.
 % TODO: Metadaten ersetzen und nach Durchführung die Ergebnistabellen füllen.
 \documentclass[runningheads]{llncs}
@@ -48,7 +48,7 @@ Daraus ergibt sich die Projektfrage: Wie lässt sich eine lokale Videoanalyse au
 
 Benötigt werden eine Video- und Kameraeingabe, Mehrpersonenverarbeitung und persistente synthetische IDs. Hinzu kommen eine visuelle Ergebniskontrolle und lokal gespeicherte Beobachtungen. Über die Konfiguration sollen sich Komponenten vergleichen und austauschen lassen. Vorgesehen ist ein kontrollierter Einzelplatzbetrieb. Gleichzeitiger Mehrkamerabetrieb, Gesichtserkennung und produktive Personenüberwachung liegen au{\ss}erhalb des Projektumfangs.
 
-Das Dokument hält den Systemstand vom 2.~September~2026 und den am 12.~September~2026 überarbeiteten Evaluationsplan fest. Eine quantitative Evaluation wurde bislang nicht durchgeführt. Auf die wesentlichen Verfahren und Entwurfsentscheidungen folgen die Umsetzung, der Versuchsplan und die Grenzen des Projekts.
+Das Dokument beschreibt den für die Evaluation abgegrenzten ReID-Kern auf \path{main} und den am 12.~September~2026 überarbeiteten Evaluationsplan. Eine quantitative Evaluation wurde bislang nicht durchgeführt. Auf die wesentlichen Verfahren und Entwurfsentscheidungen folgen die Umsetzung, der Versuchsplan und die Grenzen des Projekts.
 
 \section{Verfahren und Systementwurf}
 \label{sec:design}
@@ -59,7 +59,7 @@ Die Anwendung folgt dem Prinzip Tracking-by-Detection. YOLO liefert Bounding Box
 
 Die \path{track_id} stellt die kurzfristige Kontinuität innerhalb einer Sequenz her. Daneben verwaltet die Anwendung eine persistente \path{person_id}. Diese Trennung erlaubt es, eine neue Spur einem früher gespeicherten Personenprofil zuzuordnen. Das anwendungsseitige ReID-Modul nutzt seine Merkmale für den Datenbankabgleich. Es ist damit von einer optionalen internen Appearance-Unterstützung des Trackers zu unterscheiden.
 
-OSNet wurde für Person-ReID entwickelt und kombiniert visuelle Merkmale verschiedener räumlicher Skalen~\cite{zhou2019osnet}. Im Projekt ist \path{osnet_x1_0} über Torchreid eingebunden und erzeugt pro Personenausschnitt einen 512-dimensionalen Vektor. Zum Vergleich steht ein einfaches HSV-Farbhistogramm mit 32 Dimensionen bereit. Dieses bildet vorwiegend die Farbverteilung ab. Bei ähnlicher Kleidung ist seine Trennschärfe daher besonders eingeschränkt.
+OSNet wurde für Person-ReID entwickelt und kombiniert visuelle Merkmale verschiedener räumlicher Skalen~\cite{zhou2019osnet}. Im Projekt ist \path{osnet_x1_0} über Torchreid angebunden und für 512-dimensionale Merkmalsvektoren vorgesehen. Der Adapter übergibt derzeit einen leeren Checkpoint-Pfad; die Auswahl und Dokumentation ReID-trainierter Gewichte steht vor der Evaluation noch aus. Eine erfolgreiche Initialisierung allein belegt keine ReID-spezifische Vortrainierung. Zum Vergleich steht ein einfaches HSV-Farbhistogramm mit 32 Dimensionen bereit. Dieses bildet vorwiegend die Farbverteilung ab. Bei ähnlicher Kleidung ist seine Trennschärfe daher besonders eingeschränkt.
 
 Die Embeddings werden auf die euklidische Länge eins normalisiert. Für zwei normalisierte Merkmalsvektoren $z_q$ und $z_p$ entspricht die Cosine Similarity ihrem Skalarprodukt:
 \begin{equation}
@@ -70,7 +70,7 @@ Aus den zulässigen Profilen wählt die Anwendung das ähnlichste aus und akzept
 
 \subsection{Architektur und Entwurfsentscheidungen}
 
-Der Hauptpfad ist in Abbildung~\ref{fig:architecture} dargestellt. Ein Python-Prozess verarbeitet die Eingabe frameweise. Streamlit übernimmt die Bedienung, OpenCV das Einlesen und die Videoausgabe. Detektor, Tracker, Encoder und Datenhaltung werden durch den Orchestrator verbunden. Die Modellanbindung bleibt so von der eigentlichen Zuordnungslogik getrennt.
+Der Hauptpfad ist in Abbildung~\ref{fig:architecture} dargestellt. Ein Python-Prozess verarbeitet die Eingabe frameweise. Streamlit übernimmt die Bedienung, OpenCV das Einlesen und die Videoausgabe. Detektor, Tracker, Encoder und Datenhaltung werden durch den Orchestrator verbunden. Die Modellanbindung bleibt so von der eigentlichen Zuordnungslogik getrennt. Analyse und Visualisierung verwenden getrennte Bilder: Crops stammen aus dem unveränderten Eingangsframe, während Boxen und Texte auf eine Ausgabekopie gezeichnet werden.
 
 \begin{figure}[tbp]
 \centering
@@ -97,23 +97,17 @@ Lokal zu arbeiten erleichtert kontrollierte Versuche und die Verwaltung der Aufn
 
 Der erste Personenausschnitt ist nicht zwangsläufig ein geeigneter. Er kann unscharf, teilweise abgeschnitten oder sehr klein sein. Wird daraus sofort ein Profil angelegt, kann diese Beobachtung spätere Entscheidungen beeinflussen. Vor dem Encoding bewertet die Anwendung deshalb Schärfe, Helligkeit, Grö{\ss}e, Seitenverhältnis, Randkontakt und Detektionskonfidenz. Aus den Teilwerten entsteht ein gewichteter Qualitätswert $Q$ zwischen null und eins. Grö{\ss}e und Schärfe erhalten jeweils ein Gewicht von 0,25, Helligkeit und Seitenverhältnis jeweils 0,15, Randkontakt und Konfidenz jeweils 0,10.
 
-Geometrisch ungültige oder zu kleine Ausschnitte werden verworfen. Ein Ausschnitt wird ab einer Qualität von 0,55 als ReID-Kandidat akzeptiert. Vor der ersten Zuweisung sammelt die Anwendung standardmä{\ss}ig drei akzeptierte Beobachtungen derselben Spur. Ihre normalisierten Embeddings $z_i$ werden anhand der Qualitätswerte zusammengeführt:
+Geometrisch ungültige oder zu kleine Ausschnitte werden verworfen. Ein Ausschnitt wird ab einer Qualität von 0,55 als ReID-Kandidat akzeptiert. Vor der ersten Zuweisung sammelt die Anwendung standardmä{\ss}ig drei akzeptierte Beobachtungen derselben Spur. Ihre normalisierten Embeddings $z_i$ werden mit $w_i=\max(Q_i,0{,}05)$ gewichtet zusammengeführt:
 \begin{equation}
 \bar z=\operatorname{norm}\left(
-\frac{\sum_i Q_i z_i}{\sum_i Q_i}\right).
+\frac{\sum_i w_i z_i}{\sum_i w_i}\right).
 \label{eq:fusion}
 \end{equation}
 Mit diesem kombinierten Embedding erfolgt der Vergleich gegen die vorhandenen Profile. Als Snapshot dient der qualitativ beste Ausschnitt. Gewichte und Schwellen sind als einfache, nachvollziehbare Heuristiken gewählt. Ihren Nutzen soll die Evaluation prüfen.
 
-Für die jeweilige Spur bleibt die zugewiesene Personenkennung bestehen. Bei bekannten Tracks prüft die Anwendung standardmä{\ss}ig alle fünf Frames neue Merkmale. Erst ab $Q=0{,}65$ erfolgt eine Profilaktualisierung, die qualitätsgewichtet in das gespeicherte Profil eingeht. Ein erneuter globaler Identitätsabgleich findet bei diesen periodischen Updates nicht statt. Eine neue ReID-Entscheidung wird insbesondere mit einer neuen Track-ID relevant.
+Bereits sichtbare bekannte Personenkennungen werden vor dem Abgleich neuer Tracks reserviert, um Doppelzuweisungen aufgrund der Bearbeitungsreihenfolge zu verhindern. Für die jeweilige Spur bleibt die zugewiesene Personenkennung bestehen. Bei bekannten Tracks prüft die Anwendung standardmä{\ss}ig alle fünf Frames neue Merkmale. Erst ab $Q=0{,}65$ erfolgt eine Profilaktualisierung, die qualitätsgewichtet in das gespeicherte Profil eingeht. Ein erneuter globaler Identitätsabgleich findet bei diesen periodischen Updates nicht statt. Eine neue ReID-Entscheidung wird insbesondere mit einer neuen Track-ID relevant.
 
 Die niedrigere Kandidatenschwelle soll genügend Erstbeobachtungen zulassen, die höhere Aktualisierungsschwelle bestehende Profile schützen. Beide Ziele stehen in einem praktischen Spannungsverhältnis. Strengere Anforderungen können die Profilqualität verbessern. Zugleich können sie die Zuordnung verzögern oder ganz verhindern. In der Evaluation werden deshalb auch ausbleibende Entscheidungen erfasst, nicht nur Fehler.
-
-\subsection{Bewegung als ergänzendes Diagnosesignal}
-
-Aus den Mittelpunkten der Bounding Boxes berechnet das System auch Bewegungsrichtung, Pixelgeschwindigkeit und auffällige Positionssprünge. Die geglättete Richtung lässt sich als Pfeil anzeigen. Gro{\ss}e Sprünge werden visuell markiert und als Warnung protokolliert. Bei der manuellen Untersuchung von Kreuzungen, Track-Wechseln und Kameraschnitten dienen diese Informationen als Unterstützung.
-
-Auf den ReID-Abgleich hat die Bewegungsanalyse derzeit keinen Einfluss. Die gemessenen Geschwindigkeiten sind Bildraumgrö{\ss}en. Ohne Kamerakalibrierung und Abbildung auf reale Koordinaten lassen sie sich nicht als Meter pro Sekunde interpretieren. Die Evaluation verwendet die Markierungen daher als Hinweise auf problematische Szenen. Einen eigenständigen Identitätsnachweis liefern sie nicht.
 
 \section{Umsetzung und erreichter Projektstand}
 \label{sec:implementation}
@@ -151,7 +145,7 @@ Im Hauptpfad gliedert sich die Datenhaltung in drei Bereiche. Die Personenprofil
 
 Profile können in der Datenbank über mehrere Durchläufe erhalten bleiben. Eine Person in einem späteren Video lässt sich dadurch erneut mit dem bestehenden Bestand vergleichen. Ein direkter Vergleich zwischen Encodern mit unterschiedlichen Dimensionen ist nicht möglich. Die Implementierung überspringt inkompatible Profile. Für faire Vergleichsversuche wird dennoch jeweils eine eigene Datenbank aus denselben Registrierungsbildern aufgebaut.
 
-Ein Modus-System bündelt Konfigurationen und unterstützt benutzerdefinierte Presets. Vorbereitet sind ein Fu{\ss}ballmodus und Module für Teamfarbe, Ball, Spielfeldabbildung und Statistiken. Dieser Modus nutzt im dokumentierten Stand weiterhin den generischen ReID-Hauptpfad. Eine vollständige Fu{\ss}ballanalyse liefert er noch nicht. Er gehört nicht zum Kern der vorgesehenen Evaluation.
+Die Versuchskonfigurationen B0, A1 und A2 sind als Presets derselben ReID-Pipeline verfügbar. B0 verwendet OSNet und die Referenzschwellen, A1 ersetzt den Encoder durch das Farbhistogramm, A2 setzt die beiden Qualitätsschwellen auf null. Benutzerdefinierte ReID-Presets unterstützen Pilotversuche. Au{\ss}erhalb des Evaluationsumfangs entwickelte Zusatzmodule verbleiben auf einem separaten Entwicklungsbranch.
 
 \subsection{Einordnung des Implementierungsstands}
 
@@ -327,7 +321,7 @@ Im Masterprojekt wurde eine lokale Verarbeitungskette für Personendetektion, Tr
 
 Nun stehen der vollständige Vorhersageexport und die Durchführung der beschriebenen Evaluation an. Die Kernversuche und zwei gezielte Komponentenvergleiche sollen Stärken und Grenzen der Umsetzung sichtbar machen. Aussagen über Zuverlässigkeit, Verbesserung durch das Quality Gate und Echtzeitfähigkeit bleiben bis zum Vorliegen dieser Messungen offen.
 
-Die Ergebnisse bilden die Grundlage dafür, anschlie{\ss}end Schwellwerte anzupassen, Profilupdates zu verbessern oder weitere Tracker zu untersuchen. Als spätere Erweiterung ist die Fu{\ss}ballanalyse vorbereitet. Sie benötigt insbesondere eine integrierte Ball- und Teamverarbeitung sowie kalibrierte Spielfeldkoordinaten. Vorrang hat die überprüfbare Qualität des bestehenden Systems.
+Die Ergebnisse bilden die Grundlage dafür, anschlie{\ss}end Schwellwerte anzupassen, Profilupdates zu verbessern oder weitere Tracker zu untersuchen. Austauschbare Komponenten und eine reproduzierbare Messschnittstelle sollen die weitere Arbeit am ReID-Kern erleichtern.
 
 % Optional nach Hochschulvorgabe: Betreuung / Danksagung ergänzen.
 
