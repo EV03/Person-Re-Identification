@@ -7,16 +7,16 @@ This module is independent of Streamlit and can be tested without models.
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import Any
 
-from app.config import PipelineConfig
+from app.config import PipelineConfig, PipelineSettings
 from app.modes.base_mode import ModeConfig
 
 
-_IDENTITY_FIELDS = {"mode_id", "mode_name", "pipeline_type", "is_custom"}
+_IDENTITY_FIELDS = {"pipeline_type", "is_custom"}
 RUNTIME_PARAMETER_FIELDS = tuple(
-    name for name in PipelineConfig.__dataclass_fields__ if name not in _IDENTITY_FIELDS
+    name for name in PipelineSettings.__dataclass_fields__ if name not in _IDENTITY_FIELDS
 )
 
 
@@ -39,7 +39,7 @@ def build_run_config(mode: ModeConfig, parameters: dict[str, Any]) -> PipelineCo
         raise ValueError("The editor must supply every runtime parameter exactly once.")
     config = mode.to_pipeline_config(**parameters)
     if changed_parameters(mode, parameters):
-        config.mode_name = f"{mode.name} (geändert)"
+        config = replace(config, mode_name=f"{mode.name} (geändert)")
     return config
 
 

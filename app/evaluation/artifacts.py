@@ -84,12 +84,17 @@ def code_reference() -> dict[str, Any]:
             "source_tree_sha256": digest.hexdigest()}
 
 
-def model_references(config: PipelineConfig) -> dict[str, Any]:
-    tracker_path = resolve_project_file(config.tracker)
+def tracker_reference(tracker: str) -> dict[str, Any]:
+    """Resolve a configured YAML for the Ultralytics adapter."""
+    tracker_path = resolve_project_file(tracker)
     if not tracker_path.is_file():
         spec = importlib.util.find_spec("ultralytics")
         if spec and spec.origin:
-            tracker_path = Path(spec.origin).parent / "cfg" / "trackers" / config.tracker
+            tracker_path = Path(spec.origin).parent / "cfg" / "trackers" / tracker
+    return file_reference(tracker_path)
+
+
+def model_references(config: PipelineConfig) -> dict[str, Any]:
     checkpoint = (file_reference(resolve_project_file(config.reid_checkpoint))
                   if config.encoder_backend == "torchreid" and config.reid_checkpoint else None)
     if checkpoint:
@@ -98,7 +103,7 @@ def model_references(config: PipelineConfig) -> dict[str, Any]:
                                     else {"note": "User-supplied weights; document source and training data separately."})
     return {
         "detector": file_reference(resolve_project_file(config.yolo_model)),
-        "tracker": file_reference(tracker_path),
+        "tracker": tracker_reference(config.tracker),
         "encoder": {"backend": config.encoder_backend, "model_name": config.reid_model_name,
                     "checkpoint": checkpoint},
     }

@@ -14,9 +14,9 @@ def main() -> None:
     paths = AppPaths()
     parser = argparse.ArgumentParser(description="Isolated ReID runs; all supplied sources belong to ONE scenario/unit.")
     parser.add_argument("--sources", nargs="+", required=True, type=Path,
-                        help="One clip, or related registration/return clips sharing profiles (UC-12).")
+                        help="One clip, or related registration/return clips sharing profiles within one test sequence.")
     parser.add_argument("--modes", nargs="+", choices=sorted(list_modes(paths)),
-                        default=["default", "colorhist", "no_quality_thresholds"])
+                        default=["default", "colorhist", "no_quality_thresholds", "no_update_similarity"])
     parser.add_argument("--repetitions", type=int, default=1)
     parser.add_argument("--root", type=Path, default=None)
     parser.add_argument("--checkpoint", default=None)

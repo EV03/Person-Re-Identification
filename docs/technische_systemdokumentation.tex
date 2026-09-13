@@ -1,5 +1,5 @@
 % Workshop-Paper zum Masterprojekt (12 CP), Springer-LLNCS-Layout.
-% Dokumentierter Umfang: bereinigter ReID-Kern auf main; Stand: 12.09.2026.
+% Dokumentierter Umfang: bereinigter ReID-Kern auf main; Stand: 13.09.2026.
 % Evaluation geplant, Ergebnisse noch nicht erhoben.
 % TODO: Metadaten ersetzen und nach Durchführung die Ergebnistabellen füllen.
 \documentclass[runningheads]{llncs}
@@ -34,7 +34,7 @@
 \maketitle
 
 \begin{abstract}
-Im Masterprojekt entsteht ein lokal ausführbarer Prototyp zur Wiedererkennung von Personen in Videos und Kameraaufnahmen. Er verbindet die Personendetektion durch YOLO mit kurzfristigem Tracking und einer persistenten Zuordnung zu synthetischen IDs. Die Merkmale extrahiert OSNet. Ein Farbhistogramm-Encoder dient als einfache Vergleichsvariante. Um ungeeignete Bilder aus der Identitätsbildung herauszuhalten, werden die Qualität der Personenausschnitte bewertet und mehrere Beobachtungen zusammengeführt. SQLite speichert Profile und Ereignisse, während eine Streamlit-Oberfläche die Konfiguration und visuelle Prüfung ermöglicht. Der Projektbeitrag liegt in der Integration dieser Komponenten zu einer nachvollziehbaren Verarbeitungskette. Vorgesehen ist eine szenariobasierte Evaluation mit vier freiwillig teilnehmenden Personen. Zu den untersuchten Situationen gehören mehrere gleichzeitig sichtbare Personen, Wiedereintritt, ähnliche Kleidung, Verdeckungen und Bewegung. Ein externer Videodatensatz ergänzt die kontrollierten Aufnahmen. Bewertet werden Erfassung, Identitätskontinuität, Wiedererkennung und Verarbeitungsgeschwindigkeit. Die Evaluation steht noch aus. Das Dokument beschreibt daher den Versuchsplan und hält Platzhalter für die späteren Ergebnisse bereit. Die abschlie{\ss}ende Diskussion behandelt die Grenzen der Umsetzung und die Anforderungen an den Umgang mit den Aufnahmen. Im Vordergrund stehen der umgesetzte Funktionsumfang und dessen praktische Überprüfbarkeit.
+In diesem Projekt wird ein lokal ausführbarer Prototyp zur Wiedererkennung von Personen in Videos und Kameraaufnahmen vorgestellt. Er verbindet die Personendetektion durch YOLO mit kurzfristigem Tracking und einer persistenten Zuordnung zu synthetischen IDs. OSNet wird als Merkmalsextraktor eingesetzt; ein Farbhistogramm dient als einfache Vergleichsvariante. Die Qualität der Personenausschnitte wird bewertet und mehrere Beobachtungen werden zusammengeführt. Eine Ähnlichkeitsprüfung vor Profilupdates soll falsche Aktualisierungen begrenzen. SQLite speichert Profile und Ereignisse, während eine Streamlit-Oberfläche die Konfiguration und visuelle Prüfung ermöglicht. Der Projektbeitrag liegt in der Integration dieser Komponenten zu einer nachvollziehbaren Verarbeitungskette. Vorgesehen ist eine ereignisbasierte Fallstudie mit vier freiwillig teilnehmenden Personen, zwölf Testsequenzen und vier festen Konfigurationen. Untersucht werden Rückkehr, ähnliche Kleidung und Kreuzung beziehungsweise Verdeckung. Separate Pilotaufnahmen dienen der Parameterwahl. Eine durchgehende Frameannotation und ein umfassender Trackingbenchmark gehören nicht zur Kernevaluation. Ein externer Clip kann optional ergänzen. Die Evaluation steht noch aus; das Dokument beschreibt den Versuchsplan und hält Platzhalter für Ergebnisse bereit. Im Vordergrund stehen die Wiedererkennung, der Beitrag der Qualitätsgrenzen und des Profilschutzes sowie die Verarbeitungsgeschwindigkeit.
 \keywords{Person ReID \and Computer Vision \and Tracking \and OSNet}
 \end{abstract}
 
@@ -48,7 +48,7 @@ Daraus ergibt sich die Projektfrage: Wie lässt sich eine lokale Videoanalyse au
 
 Benötigt werden eine Video- und Kameraeingabe, Mehrpersonenverarbeitung und persistente synthetische IDs. Hinzu kommen eine visuelle Ergebniskontrolle und lokal gespeicherte Beobachtungen. Über die Konfiguration sollen sich Komponenten vergleichen und austauschen lassen. Vorgesehen ist ein kontrollierter Einzelplatzbetrieb. Gleichzeitiger Mehrkamerabetrieb, Gesichtserkennung und produktive Personenüberwachung liegen au{\ss}erhalb des Projektumfangs.
 
-Das Dokument beschreibt den für die Evaluation abgegrenzten ReID-Kern auf \path{main} und den am 12.~September~2026 überarbeiteten Evaluationsplan. Eine quantitative Evaluation wurde bislang nicht durchgeführt. Auf die wesentlichen Verfahren und Entwurfsentscheidungen folgen die Umsetzung, der Versuchsplan und die Grenzen des Projekts.
+Das Dokument beschreibt den für die Evaluation abgegrenzten ReID-Kern auf \path{main} und den am 13.~September~2026 reduzierten Evaluationsplan. Eine quantitative Evaluation wurde bislang nicht durchgeführt. Auf die wesentlichen Verfahren und Entwurfsentscheidungen folgen die Umsetzung, der Versuchsplan und die Grenzen des Projekts.
 
 \section{Verfahren und Systementwurf}
 \label{sec:design}
@@ -95,17 +95,17 @@ Lokal zu arbeiten erleichtert kontrollierte Versuche und die Verwaltung der Aufn
 
 \subsection{Qualitätsprüfung und Bildung eines Personenprofils}
 
-Der erste Personenausschnitt ist nicht zwangsläufig ein geeigneter. Er kann unscharf, teilweise abgeschnitten oder sehr klein sein. Wird daraus sofort ein Profil angelegt, kann diese Beobachtung spätere Entscheidungen beeinflussen. Vor dem Encoding bewertet die Anwendung deshalb Schärfe, Helligkeit, Grö{\ss}e, Seitenverhältnis, Randkontakt und Detektionskonfidenz. Aus den Teilwerten entsteht ein gewichteter Qualitätswert $Q$ zwischen null und eins. Grö{\ss}e und Schärfe erhalten jeweils ein Gewicht von 0,25, Helligkeit und Seitenverhältnis jeweils 0,15, Randkontakt und Konfidenz jeweils 0,10.
+Der erste Personenausschnitt kann unscharf, abgeschnitten oder zu klein sein. Wird daraus sofort ein Profil angelegt, beeinflusst diese Beobachtung spätere Entscheidungen. Vor dem Encoding bewertet die Anwendung deshalb Schärfe, Helligkeit, Grö{\ss}e, Seitenverhältnis, Randkontakt und Detektionskonfidenz. Daraus entsteht ein gewichteter Qualitätswert $Q$ zwischen null und eins, wobei Grö{\ss}e und Schärfe am stärksten berücksichtigt werden. Die Bewertung ist eine feste Heuristik und keine Wahrscheinlichkeit korrekter Identität. Die vollständigen Teilwertdefinitionen und Gewichte stehen in Anhang~\ref{app:profile-details}.
 
-Geometrisch ungültige oder zu kleine Ausschnitte werden verworfen. Ein Ausschnitt wird ab einer Qualität von 0,55 als ReID-Kandidat akzeptiert. Vor der ersten Zuweisung sammelt die Anwendung standardmä{\ss}ig drei akzeptierte Beobachtungen derselben Spur. Ihre normalisierten Embeddings $z_i$ werden mit $w_i=\max(Q_i,0{,}05)$ gewichtet zusammengeführt:
+Geometrisch ungültige oder zu kleine Ausschnitte werden verworfen. Weitere Crops werden anhand einer konfigurierbaren Qualitätsschwelle angenommen. Vor der ersten Zuweisung sammelt die Anwendung standardmä{\ss}ig drei akzeptierte Beobachtungen derselben Spur. Ihre normalisierten Embeddings $z_i$ werden entsprechend ihrer Qualität gewichtet zusammengeführt:
 \begin{equation}
 \bar z=\operatorname{norm}\left(
 \frac{\sum_i w_i z_i}{\sum_i w_i}\right).
 \label{eq:fusion}
 \end{equation}
-Mit diesem kombinierten Embedding erfolgt der Vergleich gegen die vorhandenen Profile. Als Snapshot dient der qualitativ beste Ausschnitt. Gewichte und Schwellen sind als einfache, nachvollziehbare Heuristiken gewählt. Ihren Nutzen soll die Evaluation prüfen.
+Mit $w_i=\max(Q_i,0{,}05)$ bleibt auch bei deaktivierten Qualitätsschwellen ein positives Gewicht erhalten. Das kombinierte Embedding dient dem Vergleich gegen vorhandene Profile; als Snapshot wird der beste Ausschnitt gespeichert. Für spätere Updates bleiben die unnormalisierte gewichtete Summe und die Gewichtssumme aller angenommenen Beobachtungen erhalten. Neue Beiträge werden diesen Summen hinzugefügt; nur das abgeleitete Suchprofil wird normalisiert. Die genaue Akkumulation steht in Anhang~\ref{app:profile-details}.
 
-Bereits sichtbare bekannte Personenkennungen werden vor dem Abgleich neuer Tracks reserviert, um Doppelzuweisungen aufgrund der Bearbeitungsreihenfolge zu verhindern. Für die jeweilige Spur bleibt die zugewiesene Personenkennung bestehen. Bei bekannten Tracks prüft die Anwendung standardmä{\ss}ig alle fünf Frames neue Merkmale. Erst ab $Q=0{,}65$ erfolgt eine Profilaktualisierung, die qualitätsgewichtet in das gespeicherte Profil eingeht. Ein erneuter globaler Identitätsabgleich findet bei diesen periodischen Updates nicht statt. Eine neue ReID-Entscheidung wird insbesondere mit einer neuen Track-ID relevant.
+Bereits sichtbare Personenkennungen werden vor dem Abgleich neuer Tracks reserviert, um Doppelzuweisungen durch die Bearbeitungsreihenfolge zu verhindern. Bekannte Tracks behalten ihre Personenkennung und prüfen periodisch neue Crops. Ein Profilupdate verlangt ausreichende Cropqualität und zusätzlich eine Mindestähnlichkeit zum bestehenden Profil. Bei Ablehnung bleiben Profil, Akkumulationszustand und bester Snapshot unverändert; der Versuch wird protokolliert. Auch Initialbeobachtungen, die ein vorhandenes Profil wiederfinden, durchlaufen diesen Schutz. Er repariert keine falsche Personenkennung und kann falsche Updates zulassen oder korrekte neue Ansichten verwerfen. Die Ausgangswerte stehen in Tabelle~\ref{tab:defaults}.
 
 Die niedrigere Kandidatenschwelle soll genügend Erstbeobachtungen zulassen, die höhere Aktualisierungsschwelle bestehende Profile schützen. Beide Ziele stehen in einem praktischen Spannungsverhältnis. Strengere Anforderungen können die Profilqualität verbessern. Zugleich können sie die Zuordnung verzögern oder ganz verhindern. In der Evaluation werden deshalb auch ausbleibende Entscheidungen erfasst, nicht nur Fehler.
 
@@ -135,6 +135,7 @@ Cosine-Schwellwert / Detektionskonfidenz & 0,82 / 0,35 \\
 Eingangsgrö{\ss}e für YOLO & 640 Pixel \\
 ReID-Intervall / gute Initialbeobachtungen & 5 Frames / 3 \\
 Qualität für Kandidaten / Updates & 0,55 / 0,65 \\
+Ähnlichkeit für Profilupdates & 0,82 (Default, noch zu kalibrieren) \\
 Minimale Crop-Grö{\ss}e & $30\times80$ Pixel \\
 Live-Vorschau & jedes 10. Frame \\
 \bottomrule
@@ -143,88 +144,77 @@ Live-Vorschau & jedes 10. Frame \\
 
 \subsection{Datenhaltung und Erweiterbarkeit}
 
+Typisierte Schnittstellen trennen Tracker, Embedding-Encoder, Matching, Profilupdate und Ablage. Der Profilservice kombiniert austauschbare Matching- und Updateverfahren mit einem Speicheradapter; SQLite enthält deren Berechnungen nicht mehr. Eine Trackerfactory erzeugt pro Quelle einen frischen Adapter. Gemeinsame Konfigurationsparameter sind einmal definiert und werden von Presets und Laufkonfiguration geerbt. Profilupdates verwenden die rohe gewichtete Akkumulation aus Gleichung~\ref{eq:profile-update} und den zusätzlichen Ähnlichkeitsschutz. Standard-Einstiege wählen getrennte Datenbankpfade pro Encoder-Konfiguration, einschlie{\ss}lich Architektur, Checkpoint-Inhalt und Vorverarbeitung. Ein Wechsel zurück verwendet denselben encodergebundenen Bestand. Isolierte Versuchseinheiten bleiben darüber hinaus getrennt. Alte normalisierte Profile ohne rohe Summe werden nicht automatisch übernommen, da sich ihre ursprünglichen Beiträge nicht exakt rekonstruieren lassen.
+
 Im Hauptpfad gliedert sich die Datenhaltung in drei Bereiche. Die Personenprofile speichern das normalisierte Profil-Embedding, die Beobachtungszahl, Zeitpunkte und den Verweis auf einen Snapshot. Ausgewählte Zuordnungen und Updates werden als Ereignisse dokumentiert, einschlie{\ss}lich Quelle, Frame, Track und Qualitätsinformationen. Ereignisframes bezeichnen den tatsächlichen Entscheidungszeitpunkt, Snapshotframes werden separat gespeichert. Analyse-Läufe halten Quelle, Modus, vollständige effektive Pipeline-Konfiguration, verarbeitete Frames und Abschlussstatus fest. Ergänzend entstehen ein vollständiger Frame-Export, eine MOT-Ansicht echter Trackerkennungen und ein Laufmanifest mit Datei-/Gewichte-Hashes, Codeversion, Paketversionen, Hardware und Zeitmessungen. Leere Frames und ungetrackte Boxen bleiben im Frame-Export enthalten. Video- und Snapshot-Dateien liegen au{\ss}erhalb der Datenbank; Snapshotpfade enthalten die Laufkennung.
 
 Profile können in der Datenbank über mehrere Durchläufe erhalten bleiben. Eine Person in einem späteren Video lässt sich dadurch erneut mit dem bestehenden Bestand vergleichen. Ein direkter Vergleich zwischen Encodern mit unterschiedlichen Dimensionen ist nicht möglich. Die Implementierung überspringt inkompatible Profile. Für faire Vergleichsversuche wird dennoch jeweils eine eigene Datenbank aus denselben Registrierungsbildern aufgebaut.
 
-Die Versuchskonfigurationen B0, A1 und A2 sind als Presets derselben ReID-Pipeline verfügbar. B0 verwendet OSNet und die Referenzschwellen, A1 ersetzt den Encoder durch das Farbhistogramm, A2 setzt die beiden Qualitätsschwellen auf null. Benutzerdefinierte ReID-Presets unterstützen Pilotversuche. Au{\ss}erhalb des Evaluationsumfangs entwickelte Zusatzmodule verbleiben auf einem separaten Entwicklungsbranch.
+Die Versuchskonfigurationen B0, A1, A2 und A3 sind als Ausgangspresets derselben ReID-Pipeline verfügbar. B0 verwendet OSNet und die Referenzschwellen, A1 ersetzt den Encoder durch das Farbhistogramm, A2 setzt die beiden Qualitätsschwellen auf null und A3 deaktiviert nur den Update-Ähnlichkeitsschutz. Benutzerdefinierte ReID-Presets unterstützen Pilotversuche und die anschlie{\ss}end eingefrorenen Testkonfigurationen. Au{\ss}erhalb des Evaluationsumfangs entwickelte Zusatzmodule verbleiben auf einem separaten Entwicklungsbranch.
 
 \subsection{Einordnung des Implementierungsstands}
 
 Der dokumentierte Projektstand deckt den vollständigen Verarbeitungsweg von der lokalen Quelle bis zur synthetischen ID und visuellen Ausgabe ab. Bei der ursprünglichen technischen Vorprüfung wurden die Python-Dateien syntaktisch kompiliert und die Kernabhängigkeiten importiert. Erkennungsqualität und Echtzeitfähigkeit lassen sich aus diesen Prüfungen nicht ableiten.
 
-Der vollständige Frame-Export und isolierte Versuchseinheiten sind implementiert. Pro Variante und Wiederholung entsteht eine neue Versuchsdatenbank; zusammengehörige Registrierungs-/Rückkehrclips teilen Profile, aber nicht den Tracker. Echte Modell-/Video-Smoke-Tests prüfen B0/A1/A2 mit künstlichen Clips ohne Personen. Definierte Box-/Embedding-Sequenzen prüfen Identitätsentscheidungen und Fehlerfälle. Die quantitative Auswertung gegen annotierte Referenzclips ist noch durchzuführen. Weder die Gesamtzahl neuer Profile noch die angezeigten Matches ersetzen eine Genauigkeitsmetrik.
+Der vollständige Frame-Export und isolierte Versuchseinheiten sind implementiert. Pro Variante und Wiederholung entsteht eine neue Versuchsdatenbank; zusammengehörige Registrierungs-/Rückkehrclips teilen Profile, aber nicht den Tracker. Echte Modell-/Video-Smoke-Tests prüfen die eingebauten Varianten mit künstlichen Clips ohne Personen. Definierte Box-/Embedding-Sequenzen prüfen Identitätsentscheidungen und Fehlerfälle. Die quantitative Auswertung gegen annotierte Referenzclips ist noch durchzuführen. Weder die Gesamtzahl neuer Profile noch die angezeigten Matches ersetzen eine Genauigkeitsmetrik.
 
 \section{Evaluation}
 \label{sec:evaluation}
 
-Die Evaluation soll prüfen, ob der Prototyp seine praktischen Projektziele erreicht. Dazu werden drei Fragen verfolgt: Bleiben mehrere Personen während einer Sequenz unterscheidbar? Erhalten bekannte Personen nach einer Unterbrechung ihre vorherige ID? Wie wirken sich schwierige Situationen und die Qualitätsfilterung auf das Ergebnis aus? Neben der Qualität wird die Verarbeitungsgeschwindigkeit betrachtet. Die folgenden Abschnitte beschreiben den Versuchsplan. Ergebnisse liegen noch nicht vor.
+Die Evaluation ist eine begrenzte, ereignisbasierte Fallstudie. Sie verfolgt vier Fragen: Erkennt die vollständige Pipeline Personen nach einer Rückkehr wieder? Welchen Unterschied zeigen OSNet und ein Farbhistogramm bei jeweils kalibrierten Ähnlichkeitsschwellen? Helfen die Annahmeschwellen der Qualitätsprüfung? Begrenzt die Ähnlichkeitsprüfung vor Profilupdates falsche Aktualisierungen? Ergänzend wird die Verarbeitungsgeschwindigkeit gemessen. Separate Pilotaufnahmen dienen der Parameterwahl; auf den Testsequenzen werden nur vier eingefrorene Konfigurationen verglichen. Ergebnisse liegen noch nicht vor.
 
 \subsection{Versuchsaufbau und Szenarien}
 
 An den Eigenaufnahmen sollen vier Personen freiwillig teilnehmen. Vorgesehen sind die Projektmitglieder und gegebenenfalls ein bis zwei weitere Personen mit dokumentiertem Einverständnis. Die Aufnahmen finden in einem kontrollierten Raum mit fest positionierter Kamera statt. Konstantes Licht, freie Sicht und gut unterscheidbare Kleidung bilden die Referenzbedingung. Kameraposition, Auflösung, Bildrate und Laufwege werden dokumentiert.
 
-Die vorgesehenen Szenarien sind in Tabelle~\ref{tab:use-cases} zusammengestellt. Den Kern der Eigenaufnahmen bilden die acht mit K markierten Fälle. Die übrigen Eigenaufnahmen sind ergänzenden Robustheits- und Grenztests vorbehalten. Hinzu kommt ein externer Clip. Die Nummerierung folgt dem bestehenden Use-Case-Katalog, sodass alle vorgeschlagenen Situationen zuordenbar bleiben. Eine umfangreiche Kombination sämtlicher Varianten zur Untersuchung jedes Einflussfaktors ist nicht vorgesehen.
+Die Evaluation umfasst die vier Versuchsgruppen G1 bis G4 in Tabelle~\ref{tab:evaluation-groups}. Je Gruppe werden drei getrennte Testaufnahmen von etwa 30 bis 60 Sekunden erstellt. Das ergibt zwölf Testsequenzen und bei vier Konfigurationen 48 Verarbeitungsläufe. Pilotaufnahmen und gegebenenfalls zusätzliche Laufzeitmessungen sind darin nicht enthalten. Beleuchtungswechsel, Kleidungsänderung, weitere Tracker und weitere Netzarchitekturen gehören nicht zum Kernvergleich.
 
 \begin{table}[tbp]
-\caption{Versuchsszenarien. K: Kernversuch. E: ergänzender Test.}
-\label{tab:use-cases}
+\caption{Die vier Versuchsgruppen der Evaluation mit jeweils drei getrennten Testaufnahmen.}
+\label{tab:evaluation-groups}
 \centering
 \small
 \begin{tabularx}{\linewidth}{@{}lp{0.29\linewidth}X@{}}
 \toprule
-ID & Szenario & Schwerpunkt \\
+Gruppe & Szenario & Schwerpunkt \\
 \midrule
-UC-01 K & Einzelperson & Baseline bei freier Sicht. \\
-UC-02 K & Mehrere Personen & Zwei und vier Personen gleichzeitig. \\
-UC-03 K & Verlassen und Rückkehr & Bisherige Personen-ID nach Abwesenheit. \\
-UC-04 K & Ähnliche Kleidung & Verwechslungen bei ähnlichen Farben. \\
-UC-05 K & Kreuzung / Verdeckung & ID-Wechsel und unterbrochene Spuren. \\
-UC-06 K & Bewegung & Stillstand, Gehen, Richtungswechsel. \\
-UC-07 E & Entfernung / Ansicht & Nah, fern sowie Vorder- und Rückenansicht. \\
-UC-08 E & Beleuchtung & Normales Licht und erschwerte Beleuchtung. \\
-UC-09 E & Teilverdeckung & Sichtbehinderung durch Möbel oder Türrahmen. \\
-UC-10 K & Unbekannte Person & Neue ID bei erstmaligem Eintritt. \\
-UC-11 K & Leerer Raum & Falsche Detektionen und Phantomprofile. \\
-UC-12 E & Neuer Programmlauf & Video-Paar mit gemeinsamer Datenbank. \\
-UC-13 E & Kleidungsänderung & Rückkehr mit verändertem Erscheinungsbild. \\
-UC-14 E & Externes Video & Übertragbarkeit auf eine andere Szene. \\
+G1 & Freie Sicht & Mehrere Personen, Bewegung und unbekannter Eintritt. \\
+G2 & Verlassen und Rückkehr & Wiedererkennung mit neuem Track nach Abwesenheit. \\
+G3 & Ähnliche Kleidung & Mehrere ähnlich gekleidete Personen mit Rückkehr. \\
+G4 & Kreuzung / Verdeckung & Zuordnungen und Profilupdates an unterbrochenen Spuren. \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-Je Kernfall sind drei getrennte Aufnahmen von etwa 30 bis 60 Sekunden geplant. Der Umfang der ergänzenden Tests wird vor der Auswertung endgültig festgelegt und danach vollständig berichtet. Laufreihenfolge und Rollen der Personen wechseln zwischen den Wiederholungen. In UC-10 werden zunächst drei Personen registriert. Erst dann erscheint die vierte. Wird dasselbe Video wiederholt verarbeitet, entsteht dadurch keine zusätzliche unabhängige Aufnahme.
+Laufwege und Rollen wechseln zwischen den getrennten Aufnahmen. In G1 werden zunächst drei Personen registriert; erst danach erscheint die vierte. Für G2 und G3 werden Rückkehrereignisse vor der Verarbeitung anhand der Aufnahme markiert. Je G4-Aufnahme wird genau ein dreisekündiges Übergangsfenster gewählt: 0,5 Sekunden vor bis 2,5 Sekunden nach einem markierten kritischen Übergang. Zahl und Ablauf der Ereignisse werden vor Sichtung der Systemvorhersagen festgelegt. Wird dasselbe Video wiederholt verarbeitet, entsteht dadurch keine zusätzliche unabhängige Aufnahme.
 
-Bei UC-03 muss mindestens eine Abwesenheit länger dauern als die Aufbewahrungsdauer verlorener Tracks. Der Grund liegt in der Zuordnungslogik: Solange die ursprüngliche Track-ID erhalten bleibt, kann die Anwendung die vorhandene Zuordnung fortführen, ohne erneut Merkmale abzugleichen. Rückkehrereignisse mit altem und mit neuem Track werden deshalb getrennt protokolliert. UC-12 prüft ergänzend die Wiedererkennung nach einem Prozessneustart mit bestehender Versuchsdatenbank.
+Bei Rückkehrtests muss die Abwesenheit länger dauern als die Aufbewahrungsdauer verlorener Tracks. Ein weiterhin bekannter Track kann seine Personenkennung ohne erneuten Profilabgleich fortführen. Alte und neue Tracks werden deshalb getrennt ausgewiesen. Die Gesamt-Erfolgsrate umfasst alle vorab festgelegten Rückkehrereignisse; eine zusätzliche ReID-Auswertung enthält nur Rückkehr mit neuem Track oder ohne erhaltenen Track. Der Anteil tatsächlich neu zugeordneter Tracks wird je Variante berichtet. Falls der Pilot keinen Track-Neustart erreicht, wird vor dem Test eine Registrierung-/Rückkehr-Videopaarung gewählt: Profile bleiben erhalten, der Tracker wird zwischen beiden Clips neu erzeugt. Das Paar zählt als eine Testsequenz und ersetzt eine Aufnahme, statt den Umfang zu erweitern.
 
-Für UC-14 ist eine vorab ausgewählte MOT17-Sequenz mit zugänglichen Referenzannotationen vorgesehen~\cite{mot17-data}. Als externer Testclip kommt eine Sequenz aus dem veröffentlichten Trainingsbestand infrage, sofern sie im Projekt nicht zur Abstimmung verwendet wird. Auch wenn der Datensatz mehrere Detektorvarianten derselben Bildsequenz anbietet, wird diese nur einmal gezählt. Herkunft und Nutzungsbedingungen werden dokumentiert. Das Ergebnis steht getrennt von den Eigenaufnahmen.
+Ein externer Clip ist optional und wird getrennt von G1 bis G4 berichtet. Er wird vor der Testauswertung ausgewählt, nicht zur Parameterwahl verwendet und muss für die verfolgten Ereignisse annotierbar sein. Herkunft, Nutzungsbedingungen und ein möglicher Bezug zu den Trainingsdaten der verwendeten Gewichte werden dokumentiert. Eine kurze Leerraumaufnahme kann als technischer Negativtest ergänzen, ist aber keine fünfte Versuchsgruppe.
 
 \subsection{Referenzdaten und reproduzierbarer Ablauf}
 
-Ausschlie{\ss}lich für die Annotation erhalten die tatsächlichen Personen die Codes \path{GT_01} bis \path{GT_04}. Für jeden auszuwertenden Frame enthält die Referenz Personenkennung, Bounding Box und Sichtbarkeit sowie die Zeitpunkte von Ein- und Austritten. Ist eine Person vollständig verdeckt oder hat sie das Sichtfeld verlassen, entfällt die auszuwertende Box. Ihre Referenzidentität bleibt bei der Rückkehr bestehen. Ein zweites Projektmitglied prüft schwierige Übergänge. Ausschlüsse aufgrund tatsächlich uneindeutiger Sichtbarkeit werden vor der Betrachtung der Vorhersagen festgelegt und ausgewiesen.
+Ausschlie{\ss}lich für die Annotation erhalten die tatsächlichen Personen die Codes \path{GT_01} bis \path{GT_04}. Annotiert werden Registrierung, unbekannte Eintritte, Austritt und erster wieder sichtbarer Frame sowie die ausgewählten Kreuzungs-/Verdeckungsfenster. Eine durchgehende Annotation aller Bounding Boxes ist nicht erforderlich. Für jedes Ereignis werden Referenzperson, Frame beziehungsweise Zeit und Sichtbarkeit festgehalten. Die Zuordnung zwischen Referenzperson und ursprünglicher System-ID wird in der Registrierungsphase für jede Konfiguration separat geprüft; System-IDs sind zwischen Varianten nicht direkt vergleichbar. Ein zweites Projektmitglied prüft schwierige Übergänge.
 
-Exportiert werden Frameindex, Box und die Kennungen für Track und Person. Fehlende Zuweisungen gehören ebenfalls zur Systemausgabe. Für jeden Profilabgleich ist der tatsächliche Entscheidungsframe erforderlich. Wegen der Initialpufferung kann das gespeicherte Bild des besten Ausschnitts zeitlich davor liegen. IDF1 setzt voraus, dass zusammenhängende Sequenzen annotiert und exportiert werden. Ausgewählte Standbilder allein reichen für diese zeitliche Metrik nicht aus.
+Ereignisse müssen unabhängig von den Qualitätsschwellen der jeweiligen Variante auswertbar sein. Ausschlüsse wegen tatsächlich uneindeutiger Sichtbarkeit oder fehlender zweisekündiger Beobachtungsdauer werden allein anhand der Referenzaufnahme festgelegt und berichtet. Fehlende Detektion, fehlender Track, abgelehnter Crop oder fehlgeschlagene Registrierung sind dagegen Systemfehler und kein Ausschlussgrund. Exportiert werden Frameindex, Box, Track- und Personenkennung sowie Updateentscheidungen. Für die Messung gilt der Entscheidungsframe, nicht der möglicherweise frühere Snapshotframe. Die Auswertung erfolgt manuell mit Aufnahme, Ausgabevideo und Frame-/Ereignisexport; der Versuchsstarter berechnet diese Ground-Truth-Metriken noch nicht automatisch.
 
-Der Ablauf und die Parameter werden anhand separater Pilotclips geprüft beziehungsweise festgelegt. Die abschlie{\ss}enden Testclips bleiben davon getrennt. Auch benachbarte Frames derselben Aufnahme werden nicht auf beide Mengen verteilt. Jeder unabhängige Versuch beginnt mit einem neuen Tracker und einer leeren Versuchsdatenbank. Innerhalb eines Rückkehrtests bleibt die Datenbank dagegen erhalten. Die beiden Videos von UC-12 bilden eine gemeinsame Versuchseinheit.
+Jede Konfiguration startet je unabhängiger Testsequenz mit einem neuen Tracker und einer leeren Versuchsdatenbank. Profile bleiben nur innerhalb der Sequenz beziehungsweise ihres Registrierung-/Rückkehrpaares erhalten. Auch identische Encoder verschiedener Varianten erhalten getrennte Versuchseinheiten. Pilot und Test bestehen aus getrennten Aufnahmen; benachbarte Frames desselben Videos werden nicht auf beide Mengen verteilt.
+
+\subsection{Pilotkalibrierung und feste Rahmenbedingungen}
+
+Detektor, Tracker und die geometrischen beziehungsweise zeitlichen Parameter aus Tabelle~\ref{tab:defaults} bleiben konstant, ebenso Crop-Padding, Qualitätsformel und Vorverarbeitung. Diese Rahmenbedingungen begrenzen den Umfang; ihre globale Optimalität wird nicht behauptet. Es werden keine weiteren Detektoren, Tracker oder OSNet-Architekturen kombiniert.
+
+Separate Pilotaufnahmen enthalten Rückkehr, ähnliche Kleidung und Verdeckung. Darauf werden schrittweise die Wiedererkennungsschwelle, der Update-Ähnlichkeitsschutz und zuletzt das Qualitätspaar eingestellt; die gewählte Kombination wird gemeinsam nachgeprüft. Das Ausgangsraster und das Auswahlprotokoll stehen in Anhang~\ref{app:pilot-details}. Falsche Zuordnungen sollen begrenzt werden, ohne ausbleibende Entscheidungen als Erfolge zu werten. Für das Farbhistogramm werden beide Ähnlichkeitsschwellen separat auf denselben Pilotaufnahmen kalibriert; es übernimmt das für B0 gewählte Qualitätspaar. Die Defaults sind vorläufig und keine bereits empirisch bestätigten Werte.
 
 Vor der Evaluation werden Modellgewichte, Paketversionen, Tracker-Kon\-fi\-gu\-ra\-tion und Hardware festgehalten. Die Framebegrenzung wird so gewählt, dass sämtliche Testclips vollständig verarbeitet werden. Verglichen wird auf denselben Videos unter denselben Bedingungen. Werden Parameter nach Sichtung der Testergebnisse verändert, gilt dies als neue, getrennt ausgewiesene Untersuchung.
 
 \subsection{Ausgewählte Metriken}
 
-\subsubsection{Erfassung und Tracking.}
-Für Precision und Recall werden Vorhersagen je Frame eindeutig Referenzboxen mit mindestens 0,5 Intersection over Union zugeordnet. Eine korrekte Zuordnung zählt als True Positive (TP), eine übrige Vorhersage als False Positive (FP) und eine übrige Referenzbox als False Negative (FN):
-\begin{equation}
-P=\frac{TP}{TP+FP},\qquad
-R=\frac{TP}{TP+FN},\qquad
-F_1=\frac{2TP}{2TP+FP+FN}.
-\label{eq:detection-metrics}
-\end{equation}
-IDF1 und die Anzahl der ID-Switches dienen zur Bewertung der zeitlichen Identitätskontinuität. IDF1 erfasst, wie gut vorhergesagte und tatsächliche Identitätstrajektorien übereinstimmen~\cite{ristani2016identity}. ID-Switches zählen Wechsel der Track-Zuordnung. Berechnet werden die Werte mit TrackEval in einer festgehaltenen Version~\cite{trackeval}. Sie beziehen sich auf die Kennungen des Trackers und werden gemeinsam mit den ReID-Ergebnissen interpretiert.
-
-Ein isolierter Detektortest würde die Ausgabe der Vorhersagen vor der Track-Zuordnung erfordern. Beschränkt sich die Auswertung auf den bisherigen Adapter für das Tracking, werden Precision und Recall ausdrücklich als Werte der kombinierten Erfassung berichtet. Für den leeren Raum ist kein Personen-Recall definiert. Hier werden falsche Detektionen und neue Phantomprofile pro Minute gezählt.
+\subsubsection{Abgrenzung von Erfassung und Tracking.}
+Fehlende Detektion und Track-Wechsel werden als Ursachen an den annotierten Ereignissen untersucht. Es werden keine vollständigen Precision-/Recall-, IDF1- oder ID-Switch-Werte aus dem dünn annotierten Ereignisbestand abgeleitet. Eine eigenständige Trackingauswertung mit TrackEval würde zusammenhängende Referenztrajektorien voraussetzen und gehört nicht zum Kernumfang. Die Fallstudie ersetzt daher keinen umfassenden Detektor- oder Trackingbenchmark.
 
 \subsubsection{Wiedererkennung.}
-Bei einer Rückkehr ist die erste ausgegebene Personen-ID innerhalb von zwei Sekunden nach dem ersten wieder sichtbaren Frame ma{\ss}geblich. Während dieses Fensters muss die Person auswertbar sichtbar bleiben. Als ursprüngliche ID gilt die in der vorherigen Registrierungsphase festgelegte Kennung. Die Auswertung unterscheidet eine korrekte alte ID, die falsche ID einer anderen Person, eine neu angelegte ID und eine ausbleibende Entscheidung. Spätere Korrekturen werden zusätzlich beschrieben.
+Bei einer Rückkehr ist die erste ausgegebene Personen-ID innerhalb von zwei Sekunden nach dem ersten wieder sichtbaren Frame ma{\ss}geblich. Während dieses Fensters muss die Person anhand der Referenz auswertbar sichtbar bleiben. Als ursprüngliche ID gilt die in der vorherigen Registrierungsphase korrekt und eindeutig zugeordnete Kennung. Die Auswertung unterscheidet eine korrekte alte ID, die falsche ID einer anderen Person, eine neu angelegte ID und eine ausbleibende Entscheidung. Zusätzlich wird die Personen-ID am Ende des zweisekündigen Fensters geprüft und der Anteil weiterhin korrekter Zuordnungen berichtet. So bleibt eine nur kurz richtige Ausgabe erkennbar. Spätere Korrekturen werden als Zusatzdiagnose beschrieben, nicht rückwirkend als rechtzeitiger Erfolg gezählt.
 
 Die Rückkehr-Erfolgsrate lautet:
 \begin{equation}
@@ -237,40 +227,54 @@ Fehlgeschlagene Erstregistrierungen gehen in diese Gesamtbetrachtung als Misserf
 
 Für falsche Zusammenführungen, zusätzliche IDs derselben Person und fehlende Zuweisungen werden die jeweiligen Ereigniszahlen berichtet. So bleiben beide Fehlerseiten sichtbar. Ein niedriger Match-Schwellwert kann Personen vermischen, ein hoher Wert dieselbe Person auf mehrere Profile aufteilen. Zur Erfolgsrate kommt die Zeit bis zur Entscheidung hinzu. Ausbleibende Entscheidungen verbleiben als eigene Kategorie in der Bewertung.
 
+\subsubsection{Profilupdates an kritischen Übergängen.}
+In den vorab anhand der Referenz gewählten G4-Zeitfenstern werden alle protokollierten Profilupdateversuche geprüft. Ein falsches akzeptiertes Update liegt vor, wenn der Crop eindeutig einer anderen Referenzperson als dem registrierten Eigentümer des Zielprofils zuzuordnen ist. Ein korrektes abgelehntes Update enthält dagegen eindeutig die Person des Zielprofils, scheitert aber am Ähnlichkeitsschutz. Berichtet werden diese Zahlen mit den jeweiligen Nennern, den insgesamt akzeptierten beziehungsweise abgelehnten auswertbaren Updateversuchen. Uneindeutige Crops werden für diese Teilanalyse separat ausgewiesen. Ein Fenster ohne falsche Updatekandidaten belegt keinen Schutzvorteil. Die Ergebnisse gelten für die annotierten Übergänge, nicht für sämtliche Frames. Der Schutz kann ein Profil unverändert lassen, repariert aber keine falsche Track-/Personenzuordnung.
+
 \subsubsection{Verarbeitungsgeschwindigkeit.}
-Gemessen werden die tatsächlich verarbeiteten Frames pro Sekunde und der Real-Time-Faktor, also die Verarbeitungsdauer geteilt durch die Videodauer. Die Modellladezeit wird separat ausgewiesen. Zur Messung gehören das Einlesen, die Modelle, Persistenz und Videoausgabe. Innerhalb eines Vergleichs bleibt die Einstellung der Live-Vorschau identisch. Davon zu unterscheiden ist die Verzögerung bis zur ID-Zuweisung: Sie wird in Videozeit und nicht als Rechenzeit gemessen. Drei technische Wiederholungen je Konfiguration dienen dazu, Laufzeitschwankungen einzuschätzen.
+Gemessen werden die tatsächlich verarbeiteten Frames pro Sekunde und der Real-Time-Faktor, also die Verarbeitungsdauer geteilt durch die Videodauer. Die Modellladezeit wird separat ausgewiesen. Zur Messung gehören Einlesen, Modelle, Persistenz, Exporte und Videoausgabe. Die CLI ohne UI-Vorschau und dieselbe Hardware werden verwendet. Davon zu unterscheiden ist die Verzögerung bis zur ID-Zuweisung in Videozeit. Für Laufzeitschwankungen wird nur eine vorab gewählte repräsentative Sequenz je Konfiguration dreimal technisch verarbeitet; nicht der gesamte Ereignisbestand. Diese Wiederholungen zählen nicht als unabhängige Testaufnahmen.
 
 \subsection{Komponentenvergleich und Auswertung}
 
-Der Kernvergleich stellt der Standardkonfiguration B0 zwei Varianten gegenüber. A1 ersetzt OSNet durch das Farbhistogramm. A2 setzt beide Qualitätsschwellen auf null, behält Mindestgrö{\ss}en, Qualitätsgewichtung und Snapshot-Auswahl bei. Damit untersucht A2 den Beitrag der Annahmegrenzen. Beide Vergleiche betreffen unmittelbar die Merkmalsextraktion und die im Projekt ergänzte Qualitätskontrolle.
+Der Kernvergleich umfasst die vier Varianten in Tabelle~\ref{tab:variants}. B0 verwendet die im Pilot ausgewählte OSNet-Konfiguration. A1 verwendet das Farbhistogramm mit eigener Matching- und Update-Ähnlichkeitsschwelle; alle übrigen Werte einschlie{\ss}lich der Qualitätsschwellen übernimmt es von B0. A1 ist damit ein Vergleich zweier kalibrierter Encoder-Konfigurationen und kein isolierter Wechsel nur des Encoders. A2 und A3 werden dagegen aus der eingefrorenen B0-Konfiguration abgeleitet und verändern ausschlie{\ss}lich die angegebenen Parameter. Es werden keine zusätzlichen Schwellwertraster auf den Testvideos ausgewertet.
 
-Optional lassen sich ein Wechsel zu BoT-SORT, ein einzelnes Initialframe oder weitere Schwellwerte untersuchen. Diese Veränderungen werden jeweils einzeln vorgenommen. Sie werden nur dann aufgenommen, wenn sie eine konkrete offene Frage aus den Kernversuchen beantworten. So bleibt der Versuchsumfang für das Masterprojekt überschaubar. Für jeden Encoder wird die Datenbank neu aus denselben Registrierungsbildern aufgebaut.
+\begin{table}[tbp]
+\caption{Vier feste Testvarianten. $q_I,q_U$ sind das gewählte Qualitätspaar, $\tau_O,u_O$ die OSNet- und $\tau_H,u_H$ die Histogramm-Ähnlichkeitsschwellen aus dem Pilot.}
+\label{tab:variants}
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}Xlccc@{}}
+\toprule
+Variante & Encoder & Matching & Qualität & Update-Schutz \\
+\midrule
+B0: vollständig & OSNet & $\tau_O$ & $q_I,q_U$ & $u_O$ \\
+A1: einfacher Encoder & Histogramm & $\tau_H$ & $q_I,q_U$ & $u_H$ \\
+A2: ohne Qualitätsschwellen & OSNet & $\tau_O$ & $0,0$ & $u_O$ \\
+A3: ohne Update-Schutz & OSNet & $\tau_O$ & $q_I,q_U$ & aus ($-1$) \\
+\bottomrule
+\end{tabularx}
+\end{table}
 
-Zunächst erhalten die Encoder denselben Referenzschwellwert. Das ist ein Vergleich bei gleicher Einstellung, denn ihre Ähnlichkeitsskalen können unterschiedlich ausfallen. Eine ergänzende Kalibrierung bleibt ausschlie{\ss}lich den Pilotdaten vorbehalten. Die dabei gewählte Einstellung wird vor dem Test festgehalten. Auch ein niedrigerer Fehleranteil wird stets zusammen mit der Zahl ausbleibender Entscheidungen und der Zuweisungszeit betrachtet.
+A2 behält Mindestgrö{\ss}en, Qualitätsgewichtung, Initialpuffer und Snapshot-Auswahl bei; es untersucht nur die Annahmegrenzen. Bei A3 bleiben Profilupdates und Qualitätsgrenzen aktiv, nur die Ähnlichkeitsprüfung wird mit \path{min_update_similarity=-1} deaktiviert. Für die finalen Läufe werden vier eigene, gespeicherte Pilotpresets verwendet. Die eingebauten B0/A1/A2/A3-Presets enthalten lediglich Ausgangswerte und ersetzen keine abgeschlossene Kalibrierung.
 
-Ausgewertet wird pro Clip und Szenario. Angegeben werden Mittelwert und Streuung über getrennte Aufnahmen sowie Zähler und Nenner der Ereignisse. Der Komponentenvergleich erfolgt paarweise auf denselben Clips. Wiederholte Frames derselben Person sind keine unabhängigen Versuchspersonen. Die kleine Stichprobe wird daher deskriptiv ausgewertet. Für den externen Clip ist eine eigene Ergebniszeile vorgesehen.
+Ausgewertet wird pro Clip und Versuchsgruppe. Angegeben werden Mittelwert und Streuung über getrennte Aufnahmen sowie Zähler und Nenner der Ereignisse. Der Komponentenvergleich erfolgt paarweise auf denselben Clips. Wiederholte Frames derselben Person sind keine unabhängigen Versuchspersonen. Die kleine Stichprobe wird daher deskriptiv ausgewertet. Falls ein externer Clip ergänzt wird, erhält er eine eigene Ergebniszeile.
 
 \subsection{Vorgesehene Ergebnisdarstellung}
 
 Die kompakte Ergebnisdarstellung ist in den Tabellen~\ref{tab:results-quality} und~\ref{tab:results-reid} vorbereitet. \evalpending{} steht für \emph{noch nicht erhoben}. Später kennzeichnet ein Gedankenstrich nicht anwendbare Werte, \emph{n.\,d.} rechnerisch undefinierte Werte. Nach Durchführung können ergänzende Szenarien als weitere Zeilen aufgenommen werden.
 
 \begin{table}[tbp]
-\caption{Vorlage für Erfassungs- und Trackingwerte der Referenzkonfiguration. Precision, Recall und IDF1 in Prozent. IDSW als Anzahl.}
+\caption{Vorlage für den Ereignisvergleich pro Versuchsgruppe. Jeder Eintrag enthält Zähler und Nenner; nicht anwendbare Rückkehrwerte werden gekennzeichnet.}
 \label{tab:results-quality}
 \centering
 \small
 \begin{tabularx}{\linewidth}{@{}Xrrrr@{}}
 \toprule
-Szenario & Precision & Recall & IDF1 & IDSW \\
+Rückkehr korrekt / gesamt & B0 & A1 & A2 & A3 \\
 \midrule
-UC-01: Einzelperson & \evalpending & \evalpending & \evalpending & \evalpending \\
-UC-02: Mehrere Personen & \evalpending & \evalpending & \evalpending & \evalpending \\
-UC-03: Rückkehr & \evalpending & \evalpending & \evalpending & \evalpending \\
-UC-04: Ähnliche Kleidung & \evalpending & \evalpending & \evalpending & \evalpending \\
-UC-05: Kreuzung & \evalpending & \evalpending & \evalpending & \evalpending \\
-UC-06: Bewegung & \evalpending & \evalpending & \evalpending & \evalpending \\
-UC-10: Unbekannter Eintritt & \evalpending & \evalpending & \evalpending & \evalpending \\
-UC-14: Externer Clip & \evalpending & \evalpending & \evalpending & \evalpending \\
+G1: Freie Sicht (keine Rückkehr) & --- & --- & --- & --- \\
+G2: Rückkehr & \evalpending & \evalpending & \evalpending & \evalpending \\
+G3: Ähnliche Kleidung & \evalpending & \evalpending & \evalpending & \evalpending \\
+G4: Kreuzung / Verdeckung & \evalpending & \evalpending & \evalpending & \evalpending \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -280,19 +284,23 @@ UC-14: Externer Clip & \evalpending & \evalpending & \evalpending & \evalpending
 \label{tab:results-reid}
 \centering
 \small
-\begin{tabularx}{\linewidth}{@{}Xrrr@{}}
+\begin{tabularx}{\linewidth}{@{}Xrrrr@{}}
 \toprule
-Kenngrö{\ss}e & B0 & A1 & A2 \\
+Kenngrö{\ss}e & B0 & A1 & A2 & A3 \\
 \midrule
-Rückkehr korrekt / alle Rückkehrereignisse & \evalpending & \evalpending & \evalpending \\
-Davon: korrekt / zuvor registriert & \evalpending & \evalpending & \evalpending \\
-Unbekannte Eintritte korrekt / gesamt & \evalpending & \evalpending & \evalpending \\
-Falsche bestehende Personen-ID (Anzahl) & \evalpending & \evalpending & \evalpending \\
-Neue ID bei registrierter Person (Anzahl) & \evalpending & \evalpending & \evalpending \\
-Keine ID innerhalb von zwei Sekunden (Anzahl) & \evalpending & \evalpending & \evalpending \\
-Zeit bis korrekter ID, Median (s Videozeit) & \evalpending & \evalpending & \evalpending \\
-Verarbeitung (Frames/s) & \evalpending & \evalpending & \evalpending \\
-Real-Time-Faktor & \evalpending & \evalpending & \evalpending \\
+Rückkehr korrekt / alle Rückkehrereignisse & \evalpending & \evalpending & \evalpending & \evalpending \\
+Davon: korrekt / zuvor registriert & \evalpending & \evalpending & \evalpending & \evalpending \\
+Davon: korrekt / Rückkehr mit Track-Neustart & \evalpending & \evalpending & \evalpending & \evalpending \\
+Erste richtige ID bei 2 s noch richtig / erste richtig & \evalpending & \evalpending & \evalpending & \evalpending \\
+Unbekannte Eintritte korrekt / gesamt & \evalpending & \evalpending & \evalpending & \evalpending \\
+Falsche bestehende Personen-ID (Anzahl) & \evalpending & \evalpending & \evalpending & \evalpending \\
+Neue ID bei registrierter Person (Anzahl) & \evalpending & \evalpending & \evalpending & \evalpending \\
+Fehlregistrierung / keine rechtzeitige ID (Anzahl) & \evalpending & \evalpending & \evalpending & \evalpending \\
+Falsche akzeptierte Updates / akzeptierte (G4) & \evalpending & \evalpending & \evalpending & \evalpending \\
+Korrekte abgelehnte Updates / abgelehnte (G4) & \evalpending & \evalpending & \evalpending & \evalpending \\
+Zeit bis korrekter ID, Median (s Videozeit) & \evalpending & \evalpending & \evalpending & \evalpending \\
+Verarbeitung (Frames/s) & \evalpending & \evalpending & \evalpending & \evalpending \\
+Real-Time-Faktor & \evalpending & \evalpending & \evalpending & \evalpending \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -302,13 +310,13 @@ Nach den Versuchen werden kurze Szenenbeispiele die wichtigsten Unterschiede erl
 \section{Diskussion und Grenzen}
 \label{sec:discussion}
 
-Die Architektur schafft eine nachvollziehbare Grundlage für die Projektversuche. Entscheidend ist die Trennung von kurzfristigem Tracking und dauerhafter Personenkennung. Die Qualitätsprüfung setzt bei ungeeigneten Erstbeobachtungen und Profilupdates an. Ob sie stabilere IDs bewirkt, muss empirisch geprüft werden. Gute Trackingwerte schlie{\ss}en falsche Personenprofile nicht aus. Deshalb werden beide Ebenen getrennt untersucht.
+Die Architektur schafft eine nachvollziehbare Grundlage für die Projektversuche. Entscheidend ist die Trennung von kurzfristigem Tracking und dauerhafter Personenkennung. Die Qualitätsprüfung setzt bei ungeeigneten Erstbeobachtungen und Profilupdates an. Ob sie stabilere IDs bewirkt, muss empirisch geprüft werden. Ereignisbasierte Wiedererkennung und Profilupdates werden getrennt untersucht; ein vollständiger Trackingbenchmark wird nicht beansprucht.
 
 Schwierigkeiten sind bei ähnlicher Kleidung, starkem Perspektivwechsel, Verdeckungen und kleinen Ausschnitten zu erwarten. In einer anderen Aufnahmeumgebung kann ein vortrainierter Encoder andere Ähnlichkeitsscores liefern. Die Speicherung wird durch ein einziges Profil pro Person vereinfacht. Unterschiedliche Ansichten kann dieses nur begrenzt repräsentieren. Hinzu kommt, dass fehlerhafte Zuordnungen spätere Profilupdates beeinflussen können.
 
 Technisch ist die Umsetzung auf kleine, lokale Versuche ausgerichtet. Die lineare Suche skaliert mit der Anzahl gespeicherter Profile. Parallele Läufe und eine konfliktfreie ID-Erzeugung sind nicht umfassend abgesichert. Akzeptierte Updates erzeugen zusätzliche Ereignisse und Snapshots, für die keine automatische Bereinigung erfolgt. Eine explizite Versionierung von Encodern und Profilen würde spätere Vergleiche erleichtern.
 
-Mit der geplanten Stichprobe von vier Personen lassen sich Aussagen über die getesteten Abläufe treffen. Für eine repräsentative Zuverlässigkeits- oder Fairnessbewertung reicht sie nicht aus. Wiederholte Aufnahmen erweitern die Vielfalt der Situationen, nicht die Zahl unterschiedlicher Personen. Der externe Clip ergänzt den Kontext. Einen breiten Benchmark ersetzt er nicht. Auch positive Einzelergebnisse ändern diese Grenzen nicht.
+Mit der geplanten Stichprobe von vier Personen lassen sich Aussagen über die getesteten Abläufe treffen. Für eine repräsentative Zuverlässigkeits- oder Fairnessbewertung reicht sie nicht aus. Wiederholte Aufnahmen erweitern die Vielfalt der Situationen, nicht die Zahl unterschiedlicher Personen. Wenn Pilot und Test dieselben Personen zeigen, wird Robustheit auf neuen Aufnahmen und nicht Generalisierung auf unbekannte Personen geprüft. Ein optionaler externer Clip ergänzt den Kontext, ersetzt aber keinen breiten Benchmark. Die Übergangsanalyse erfasst keine vollständige Zahl sämtlicher ID-Switches oder falscher Updates im Video. Auch positive Einzelergebnisse ändern diese Grenzen nicht.
 
 \subsection{Umgang mit personenbezogenen Aufnahmen}
 \label{sec:privacy}
@@ -321,7 +329,7 @@ Synthetische IDs schlie{\ss}en eine Identifizierbarkeit über Bilder und Merkmal
 
 Im Masterprojekt wurde eine lokale Verarbeitungskette für Personendetektion, Tracking und synthetische Identitätszuordnung umgesetzt. Sie verbindet vorhandene Modelle mit einer Qualitätsprüfung, mehreren Initialbeobachtungen und einer lokalen Profilhistorie. Über die Streamlit-Oberfläche wird der Ablauf bedienbar. Sie unterstützt zugleich die Sichtprüfung von Fehlerfällen. Im Mittelpunkt steht ein praktisch untersuchbarer Prototyp.
 
-Die technische Messschnittstelle mit Frame-Export, isolierten Läufen und Manifesten ist vorbereitet. Nun stehen Referenzannotation, Metrikauswertung und Durchführung der beschriebenen Evaluation an. Die Kernversuche und zwei gezielte Komponentenvergleiche sollen Stärken und Grenzen der Umsetzung sichtbar machen. Aussagen über Zuverlässigkeit, Verbesserung durch das Quality Gate und Echtzeitfähigkeit bleiben bis zum Vorliegen dieser Messungen offen.
+Die technische Messschnittstelle mit Frame-Export, isolierten Läufen und Manifesten ist vorbereitet. Nun stehen Pilotkalibrierung, Ereignisannotation und Durchführung der reduzierten Evaluation an. Zwölf Testsequenzen und drei gezielte Vergleiche mit der Referenz sollen Stärken und Grenzen der Umsetzung sichtbar machen. Aussagen über Zuverlässigkeit, Verbesserung durch die Qualitätsgrenzen beziehungsweise den Update-Schutz und Echtzeitfähigkeit bleiben bis zum Vorliegen dieser Messungen offen.
 
 Die Ergebnisse bilden die Grundlage dafür, anschlie{\ss}end Schwellwerte anzupassen, Profilupdates zu verbessern oder weitere Tracker zu untersuchen. Austauschbare Komponenten und eine reproduzierbare Messschnittstelle sollen die weitere Arbeit am ReID-Kern erleichtern.
 
@@ -363,4 +371,74 @@ Zhou, K., Yang, Y., Cavallaro, A., Xiang, T.: Omni-Scale Feature Learning for Pe
 
 \end{thebibliography}
 \end{otherlanguage}
+
+\clearpage
+\appendix
+\section{Details der Qualitäts- und Profilberechnung}
+\label{app:profile-details}
+
+\subsection{Qualität eines Personenausschnitts}
+
+Mit $\operatorname{clip}(x)=\min(1,\max(0,x))$ werden die Teilwerte auf null bis eins begrenzt. Für das Graustufenbild $I_{\mathrm{grau}}$, seine mittlere Helligkeit $\mu_{\mathrm{grau}}$, Cropbreite $b$ und -höhe $h$ gilt:
+\begin{align*}
+S &= \operatorname{clip}\left(\frac{\operatorname{Var}(\operatorname{Laplace}(I_{\mathrm{grau}}))}{150}\right),\\
+H &= \operatorname{clip}\left(1-\frac{|\mu_{\mathrm{grau}}-128|}{128}\right),\\
+G &= \min\left(1,\frac{b}{\max(2b_{\min},1)},\frac{h}{\max(2h_{\min},1)}\right).
+\end{align*}
+Die Mindestgrö{\ss}en $b_{\min}$ und $h_{\min}$ stehen in Tabelle~\ref{tab:defaults}. Das Seitenverhältnis $r=h/b$ liefert:
+\[
+A(r)=\begin{cases}
+1 & 1{,}5\leq r\leq4,\\
+(r-1{,}1)/0{,}4 & 1{,}1\leq r<1{,}5,\\
+5-r & 4<r\leq5,\\
+0 & \text{sonst}.
+\end{cases}
+\]
+Der Randwert ist $R=0{,}65$, wenn die ursprüngliche Bounding Box innerhalb von drei Pixeln an einem Bildrand liegt, sonst $R=1$. Mit $D=\operatorname{clip}(\text{Detektionskonfidenz})$ ergibt sich:
+\begin{equation}
+Q=0{,}25S+0{,}15H+0{,}25G+0{,}15A+0{,}10R+0{,}10D.
+\label{eq:crop-quality}
+\end{equation}
+Diese Konstanten bleiben in allen Versuchsvarianten gleich; A2 entfernt nur die beiden Annahmeschwellen. Die Qualität des besten Snapshots ist weder eine Identitätswahrscheinlichkeit noch die Gewichtssumme des Profils.
+
+\subsection{Akkumulation und Annahme von Profilupdates}
+
+Für normalisierte Crop-Embeddings $z_i$ und Gewichte $w_i=\max(Q_i,0{,}05)$ werden bereits bei der Initialisierung alle Beiträge als rohe Summe $s=\sum_i w_i z_i$ und Gewichtssumme $W=\sum_i w_i$ gespeichert. Das Suchprofil ist $p=\operatorname{norm}(s/W)$. Für jede weitere akzeptierte Beobachtung gilt:
+\begin{equation}
+\begin{aligned}
+s_{\mathrm{neu}} &= s+w_{\mathrm{neu}}z_{\mathrm{neu}},\\
+W_{\mathrm{neu}} &= W+w_{\mathrm{neu}},\\
+p_{\mathrm{neu}} &= \operatorname{norm}(s_{\mathrm{neu}}/W_{\mathrm{neu}}).
+\end{aligned}
+\label{eq:profile-update}
+\end{equation}
+Nur das abgeleitete Suchprofil wird normalisiert, nicht die gespeicherte Summe. Die Beobachtungszahl zählt akzeptierte Einzel-Crops, einschlie{\ss}lich aller Initialbeobachtungen. Ohne zustandsabhängige Annahmefilter ist diese Akkumulation bis auf Rundung unabhängig von der Reihenfolge.
+
+Bei bekannten Tracks müssen geometrische Mindestgrö{\ss}en sowie Kandidaten- und Updatequalität erfüllt sein. Vor der Addition wird au{\ss}erdem $\operatorname{cos}(p,z_{\mathrm{neu}})\geq\tau_{\mathrm{update}}$ geprüft. Auch ein Initialpuffer, der ein vorhandenes Profil wiederfindet, wird gegen dieses Profil geprüft. Die Annahme hängt damit vom bisherigen Profil ab und kann die Reihenfolgeabhängigkeit der zugelassenen Beiträge beeinflussen. A3 setzt ausschlie{\ss}lich diese Ähnlichkeitsschwelle auf $-1$, sodass alle gültigen Cosine-Werte zugelassen werden; Qualitätsprüfung und Akkumulation bleiben aktiv.
+
+\section{Pilot-Suchraster und Auswahlprotokoll}
+\label{app:pilot-details}
+
+\begin{table}[htbp]
+\caption{Begrenztes OSNet-Ausgangsraster auf separaten Pilotaufnahmen. Die Schritte werden nacheinander durchgeführt, nicht als vollständiges Produkt aller Kombinationen.}
+\label{tab:pilot-grid}
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}lp{0.30\linewidth}X@{}}
+\toprule
+Schritt & Veränderter Parameter & Pilotwerte beziehungsweise Prüfung \\
+\midrule
+1 & Matching-Schwelle & 0,75; 0,80; 0,82; 0,85; 0,90 \\
+2 & Update-Ähnlichkeit & 0,80; 0,85; 0,90 \\
+3 & Qualitätspaar & 0,45/0,55; 0,55/0,65; 0,65/0,75 (Initialisierung/Update) \\
+4 & Gemeinsame Kontrolle & Nur die ausgewählte Kombination erneut prüfen \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Schritt 1 beginnt mit den übrigen Defaults aus Tabelle~\ref{tab:defaults}. In jedem weiteren Schritt bleiben die bereits ausgewählten Werte konstant. Crop-Padding ist durchgehend 0,05; alle Clips werden vollständig verarbeitet. Auch Pilotversuche beginnen mit frischen Versuchsdatenbanken. Das Farbhistogramm übernimmt das gewählte Qualitätspaar; seine Matching- und Update-Ähnlichkeit werden separat auf denselben Pilotaufnahmen eingestellt. Falls seine Scoreverteilung einen anderen Suchbereich verlangt, wird dieser ausschlie{\ss}lich auf Pilotdaten angepasst und dokumentiert.
+
+Das Auswahlkriterium wird vor der Auswertung festgelegt: Auf demselben Pilotereignisbestand werden zunächst die falschen Personen-ID-Zuordnungen minimiert. Bei Gleichstand entscheidet die höhere Zahl korrekter Rückkehr- und unbekannter Eintrittsentscheidungen, danach die kürzere mediane Zeit bis zur korrekten ID. Konfigurationen ohne korrekte Rückkehr sind keine brauchbare Wahl; scheitern alle, wird zuerst die Ursache untersucht. Ausbleibende Entscheidungen, falsche neue IDs und Fehlregistrierungen werden zusätzlich ausgewiesen und nicht als korrekte Ablehnungen gewertet. Der Update-Schutz wird anhand falscher akzeptierter und korrekter abgelehnter Updates in den annotierten Übergangsfenstern eingeordnet.
+
+Je ausprobierter Konfiguration werden Preset-ID, vollständige Parameter, Clip-/Ereignisbestand, Rohzahlen mit Nennern und Zuweisungszeiten festgehalten. Nach der Auswahl werden die vier Testpresets aus Tabelle~\ref{tab:variants} gespeichert und zusammen mit Code, Gewichten, Tracker-YAML, Paketversionen und Hardware eingefroren. Das Raster ist ein geplanter Ausgangspunkt, kein bereits erhobenes Ergebnis und kein Nachweis global optimaler Parameter. Änderungen nach Sichtung der Testresultate gehören zu einer neuen, getrennt ausgewiesenen Untersuchung.
 \end{document}

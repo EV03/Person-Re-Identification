@@ -7,12 +7,15 @@ offenen Voraussetzungen für Messungen beschreibt [EVALUATION_SCOPE.md](EVALUATI
 
 1. [config.py](../app/config.py): Pfade und Laufzeitparameter.
 2. [models.py](../app/storage/models.py): Detection, MatchResult, PersonRecord und PipelineResult.
-3. [default_mode.py](../app/modes/default_mode.py): B0 und die beiden gezielt abgeleiteten Varianten A1/A2.
+3. [default_mode.py](../app/modes/default_mode.py): B0 und die drei gezielt abgeleiteten Ausgangsvarianten A1/A2/A3.
 4. [main.py](../app/main.py): CLI, Preset, Overrides und Pipeline-Aufruf.
 5. [orchestrator.py](../app/pipeline/orchestrator.py): kompletter Ablauf.
 6. [reid_encoder.py](../app/pipeline/reid_encoder.py) und [detector_tracker.py](../app/pipeline/detector_tracker.py): Modelladapter.
-7. [vector_store.py](../app/storage/vector_store.py): Ähnlichkeitssuche und Profilupdates.
-8. [streamlit_app.py](../app/ui/streamlit_app.py): interaktive Bedienung.
+7. [repository.py](../app/reid/repository.py), [service.py](../app/reid/service.py) und [operations.py](../app/reid/operations.py): Matching-/Updateverträge und Methoden.
+8. [vector_store.py](../app/storage/vector_store.py): Profile, Ereignisse und Laufdaten speichern.
+9. [streamlit_app.py](../app/ui/streamlit_app.py): interaktive Bedienung.
+
+Für neue Implementierungen: [Tracker und ReID-Verfahren austauschen](EXTENDING_BACKENDS.md).
 
 ## Verantwortlichkeiten
 
@@ -20,6 +23,7 @@ offenen Voraussetzungen für Messungen beschreibt [EVALUATION_SCOPE.md](EVALUATI
 |---|---|
 | `app/modes/` | ReID-Presets; alle verwenden denselben Hauptpfad |
 | `app/pipeline/` | Tracking, Encoding und Ablaufsteuerung |
+| `app/reid/` | Speicherneutrale Matching-/Profilupdateverträge, Service und Policies |
 | `app/storage/` | persistente Profile, Ereignisse und Laufdaten |
 | `app/utils/image_utils.py` | Crops, Qualität, Vektoren und Annotation |
 | `app/utils/camera_utils.py` | lokale Kameraauswahl und Capture |
@@ -28,8 +32,9 @@ offenen Voraussetzungen für Messungen beschreibt [EVALUATION_SCOPE.md](EVALUATI
 
 ## Ein Lauf
 
-`PersonReIdPipeline` erzeugt im Konstruktor den Store. Tracker, Encoder und Store
-können für Tests injiziert werden. `process()` erstellt zuerst Laufartefakte und
+`PersonReIdPipeline` erzeugt standardmäßig SQLite und einen `ProfileService`.
+Tracker, Trackerfactory, Encoder, Profilmanager, Matcher, Updater und Store können
+über typisierte Verträge injiziert werden. `process()` erstellt zuerst Laufartefakte und
 registriert den Lauf, lädt danach die Modelle, öffnet die Quelle und sichert die
 Ressourcenfreigabe. Eine Pipelineinstanz darf nur eine Quelle verarbeiten.
 `_process_open_capture()` liest Metadaten, öffnet den Writer, registriert den Lauf
@@ -62,9 +67,15 @@ und das Verwerfen veralteter Track-Zustände sind weiterhin offene fachliche Arb
 ## Presets und Konfiguration
 
 `ModeConfig.to_pipeline_config()` überträgt den Namen nach `mode_name` und wendet
-Overrides zuletzt an. B0 hat die ID `default`, A1 `colorhist` und A2
-`no_quality_thresholds`. A1/A2 werden aus B0 abgeleitet, damit ihre Unterschiede
-im Code überprüfbar bleiben.
+Overrides zuletzt an. Alle gemeinsamen Felder sind einmal in `PipelineSettings`
+definiert und werden von beiden Konfigurationen geerbt. Konfigurationen sind
+unveränderlich; Änderungen erfolgen mit `dataclasses.replace`. B0 hat die ID `default`, A1 `colorhist` und A2
+`no_quality_thresholds`; A3 hat die ID `no_update_similarity`. Die Ausgangsvarianten
+werden aus B0 abgeleitet, damit ihre Unterschiede im Code überprüfbar bleiben.
+A3 verändert nur die Update-Ähnlichkeitsschwelle auf -1, nicht die Updates selbst.
+Für finale Tests eigene kalibrierte Kopien verwenden: A2/A3 aus der gespeicherten
+B0 ableiten, A1 zusätzlich mit eigenen Ähnlichkeitsschwellen kalibrieren.
+Versuchsplan: [EVALUATION_RUNBOOK.md](EVALUATION_RUNBOOK.md).
 
 Eigene Presets werden unter `AppPaths.mode_config_path` gespeichert:
 `data/modes/reid_presets.json`. Es werden nur `person_reid`-Presets akzeptiert.
@@ -89,12 +100,22 @@ pro Quelle; nur zusammengehörige Quellen innerhalb einer Einheit teilen Profile
 
 ## Datenbank und Matching
 
-`SQLiteVectorStore.search()` lädt alle Personenprofile, überspringt andere
+`ProfileService.search()` lädt Profile über `ProfileRepository` und delegiert an
+`ProfileMatcher`. Standardmäßig überspringt `CosineProfileMatcher` andere
 Vektordimensionen und vergleicht mit Cosine Similarity. Die Suche kostet ungefähr
 `O(Personenzahl x Dimension)`. Für den kleinen Versuchsbestand ist SQLite geeignet.
 
-Gleiche Dimension garantiert keine kompatiblen Modellgewichte. Ein Encoderwechsel
-braucht einen definierten neuen Bestand. Neue Datenbanken enthalten nur die drei
+Profilupdates berechnet `ProfileUpdater`, standardmäßig `WeightedMeanProfileUpdater`.
+Rohe gewichtete Summen bewahren die Beiträge aller akzeptierten Einzel-Crops.
+`ProfileService` prüft zusätzlich die Ähnlichkeit zum bisherigen Profil und
+exportiert die Annahme/Ablehnung. SQLite speichert nur den berechneten Zustand
+und sein Ereignis atomar. Die bisherigen Store-Methoden delegieren als
+Kompatibilitätsfassaden an den Service; die Pipeline nutzt diese Fassaden nicht.
+
+Gleiche Dimension garantiert keine kompatiblen Modellgewichte. Standard-UI,
+CLI und Versuchsstarter wählen getrennte DB-Pfade pro Encoder-Konfiguration.
+Altbestände bleiben erhalten, werden aber nicht automatisch übernommen.
+Neue Datenbanken enthalten nur die drei
 ReID-Tabellen. Alte Zusatzdaten werden nicht gelöscht.
 
 Snapshots und Datenbank-Events sind Diagnosehilfen. `frames.jsonl` enthält dagegen
@@ -118,8 +139,10 @@ gemessene ReID-Qualität.
 Zuerst einen Regressionstest für das beobachtete Verhalten ergänzen. Die Tests
 verwenden temporäre Dateien und Fake-Komponenten; ein GPU-Lauf ist dafür nicht nötig.
 
-Als nächste Ausbauschritte eignen sich injizierbare Modell-/Store-Abhängigkeiten,
-ein separates Exportmodul und klar getrennte Matching-/Updatefunktionen.
+Injizierbare Tracker-/Store-Abhängigkeiten, ein separates Exportmodul und
+Matching-/Updatepolicies und korrekte Akkumulation sind vorhanden. Offen bleiben
+automatische Identitätskorrektur nach Tracker-ID-Wechseln und empirische Absicherung.
+Details: [PROFILE_UPDATES.md](PROFILE_UPDATES.md).
 Der wissenschaftliche Vergleich braucht zuerst verlässliche Messdaten.
 
 Die ausgegliederten Erweiterungen und frühere Dokumentation sind auf

@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 
 from app.storage.models import Detection
+from app.reid.embeddings import cosine_similarity, normalize_vector  # Compatibility exports.
 
 
 def crop_xyxy(frame: np.ndarray, bbox_xyxy: tuple[int, int, int, int], padding: float = 0.0) -> np.ndarray | None:
@@ -201,17 +202,3 @@ def draw_detection(
         thickness,
         cv2.LINE_AA,
     )
-
-
-def normalize_vector(vector: np.ndarray) -> np.ndarray:
-    vector = np.asarray(vector, dtype=np.float32).reshape(-1)
-    norm = float(np.linalg.norm(vector))
-    if norm == 0:
-        return vector
-    return vector / norm
-
-
-def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
-    a = normalize_vector(a)
-    b = normalize_vector(b)
-    return float(np.dot(a, b))

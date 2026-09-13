@@ -1,6 +1,6 @@
 """A fresh experiment unit per variant/repetition, shared profiles per unit.
 
-Multiple sources in ONE unit are registration/return sequences (e.g. UC-12).
+Multiple sources in ONE unit form a related registration/return sequence.
 Each source gets a fresh pipeline/tracker while the unit's database is retained.
 Independent scenarios must be dispatched as separate units.
 """
@@ -14,6 +14,7 @@ from typing import Callable
 from app.config import AppPaths, PipelineConfig, PROJECT_ROOT
 from app.evaluation.artifacts import atomic_json, file_reference
 from app.pipeline.orchestrator import PersonReIdPipeline
+from app.storage.encoder_paths import paths_for_encoder
 from app.utils.id_utils import make_run_id, safe_source_name, utc_now_iso
 
 
@@ -40,6 +41,7 @@ def run_unit(sources: list[Path], config: PipelineConfig, *, root: Path | None =
         raise FileNotFoundError("Every experiment source must be an existing video file.")
     paths = create_unit_paths(root=root, base_paths=base_paths, mode_id=config.mode_id)
     manifest_path = paths.output_dir.parent / "experiment.json"
+    paths = paths_for_encoder(paths, config)
     manifest = {
         "schema_version": 1, "status": "running", "started_at": utc_now_iso(),
         "configuration": asdict(config), "sources": [file_reference(source) for source in sources],

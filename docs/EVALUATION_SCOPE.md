@@ -1,6 +1,6 @@
 # Evaluationsumfang auf main
 
-Stand: 12. September 2026. Dieser Branch enthält den abgegrenzten ReID-Prototyp.
+Stand: 13. September 2026. Dieser Branch enthält den abgegrenzten ReID-Prototyp.
 Die quantitative Evaluation wurde noch nicht durchgeführt.
 
 ## Enthalten und dokumentiert
@@ -20,9 +20,11 @@ Die quantitative Evaluation wurde noch nicht durchgeführt.
 | `default` | B0 | Referenz: OSNet, Schwellen 0,55 / 0,65 |
 | `colorhist` | A1 | Nur der Encoder wird ersetzt |
 | `no_quality_thresholds` | A2 | Nur die beiden Annahmeschwellen werden null |
+| `no_update_similarity` | A3 | Nur der Update-Ähnlichkeitsschutz wird mit -1 deaktiviert |
 
 A2 behält Qualitätsgewichtung, Mindestgrößen, Initialpuffer und Snapshot-Auswahl.
-Alle drei Presets enthalten zunächst dieselben sonstigen Parameter. CLI/UI-Overrides
+Alle vier Presets sind Ausgangskonfigurationen, keine final ausgewählten Pilotwerte.
+Sie enthalten zunächst dieselben sonstigen Parameter. CLI/UI-Overrides
 sind möglich und müssen als Konfigurationsänderung aufgezeichnet werden.
 
 Die UI lädt Presets in einen gemeinsamen, vollständigen Pipeline-Editor. Starten
@@ -30,7 +32,7 @@ und "Aktuelle Einstellungen speichern" verwenden dieselben Parameter. Geänderte
 Läufe werden im Namen markiert; die effektive Pipeline-Konfiguration ist einsehbar
 und wird vollständig in `analysis_runs.metadata_json` festgehalten. Das Speichern
 erstellt ein neues Preset und lädt es; vorhandene Presets werden nicht überschrieben.
-Alle vier konfigurierbaren Matching-/Konfidenz-/Qualitätsschwellen, Mindestgrößen
+Alle fünf konfigurierbaren Matching-/Konfidenz-/Qualitätsschwellen, Mindestgrößen
 und zeitlichen Parameter sind editierbar. Tracker-interne Schwellen bleiben in der
 Tracker-YAML, Konstanten und Gewichte der Qualitätsheuristik bleiben unverändert.
 Diese Einstellbarkeit dient Pilotversuchen, nicht einer Nachkalibrierung auf Testclips.
@@ -38,8 +40,8 @@ Diese Einstellbarkeit dient Pilotversuchen, nicht einer Nachkalibrierung auf Tes
 Die bisherige zusätzliche Bewegungsdiagnostik ist vollständig aus dem aktiven
 Hauptpfad entfernt. Das betrifft Richtungsvektoren, Pixelgeschwindigkeit,
 Sprung-Warnungen, Payload-Felder und eigene UI-Steuerung. Die interne Bewegungsschätzung
-des verwendeten Trackers bleibt Teil des Trackings. UC-06 (Gehen und Richtungswechsel)
-bleibt deshalb als Versuchssituation sinnvoll; eine eigene Motion-Metrik wird nicht behauptet.
+des verwendeten Trackers bleibt Teil des Trackings. Bewegung bleibt als Teil der
+Versuchsgruppe G1 sinnvoll; eine eigene Motion-Metrik wird nicht behauptet.
 
 Fußballmodule, Team-/Ball-/Spielfeldmodelle, ihre Tabellen-Erzeugung und die ungenutzte
 Qdrant-Servicekonfiguration liegen nur noch im gesicherten Entwicklungsstand.
@@ -69,8 +71,9 @@ die bisherige `custom_modes.json` wird weder geladen noch überschrieben.
 
 Der bisherige Identitäts-Fix wurde nicht vollständig übernommen: Die darin enthaltene
 Motion-basierte Neuzuordnung würde eine andere Methode einführen. Bekannte Tracks
-behalten weiterhin ihre Personenkennung; qualitätsgefilterte Updates prüfen ihre
-Identität noch nicht erneut. Dies ist im Paper als Einschränkung dokumentiert.
+behalten weiterhin ihre Personenkennung. Profilupdates prüfen inzwischen zusätzlich
+die Ähnlichkeit zum Zielprofil; diese Prüfung repariert die Track-/Personenzuordnung
+nicht. A3 entfernt nur diese Prüfung für den kontrollierten Vergleich.
 
 ## Die sechs technischen Vorbereitungen sind implementiert
 
@@ -93,22 +96,54 @@ Identität noch nicht erneut. Dies ist im Paper als Einschränkung dokumentiert.
 
 ## Vor der quantitativen Evaluation noch erforderlich
 
-Annotierte Pilot-/Testclips samt Berechtigung/Lizenz auswählen, Metriken gegen
-Ground Truth berechnen, Rückkehrentscheidungen prüfen, danach Code und Parameter
-einfrieren. Bedienung/Format: [EVALUATION_RUNBOOK.md](EVALUATION_RUNBOOK.md).
-Der Versuchsstarter führt noch keine Ground-Truth-/TrackEval-Auswertung durch.
+Tracker, Matching, Profilupdate und Ablage sind über typisierte Verträge
+getrennt. Gemeinsame Settings stehen
+nur in `PipelineSettings`. Erweiterungen: [EXTENDING_BACKENDS.md](EXTENDING_BACKENDS.md).
+`WeightedMeanProfileUpdater` akkumuliert rohe qualitätsgewichtete Summen,
+einschließlich aller Initial-Crops. Vor Updates schützt eine konfigurierbare
+Ähnlichkeitsschwelle (Default 0,82) das bestehende Profil. Abgelehnte Versuche
+werden protokolliert. Standard-Einstiege verwenden getrennte Datenbanken pro
+Encoder-Konfiguration; isolierte Versuchseinheiten bleiben zusätzlich getrennt.
+Alte DBs werden nicht übernommen. Formeln: [PROFILE_UPDATES.md](PROFILE_UPDATES.md).
+
+## Reduzierter finaler Versuchsplan
+
+Separate Pilotaufnahmen dienen der schrittweisen Wahl von Matching-, Update-
+Ähnlichkeits- und Qualitätsschwellen. Danach vier eigene Presets speichern und vor
+der Testauswertung einfrieren. A1 verwendet eigene Encoder-Ähnlichkeitsschwellen;
+A2/A3 werden aus der kalibrierten B0 abgeleitet. Eingebaute Presets übernehmen
+die bearbeiteten B0-Werte nicht automatisch.
+
+Vier Versuchsgruppen: freie Sicht/unbekannter Eintritt, Rückkehr, ähnliche Kleidung
+mit Rückkehr und Kreuzung/Verdeckung. Je drei getrennte Aufnahmen ergeben zwölf
+Testsequenzen, jeweils vier Varianten und damit 48 Kernläufe. Ein Videopaar mit
+gemeinsamen Profilen zählt als eine Sequenz. Externer Clip und Leerraum-Negativtest
+sind optional; zusätzliche technische Laufzeitwiederholungen nur auf einer vorab
+gewählten repräsentativen Sequenz je Variante, nicht auf allen zwölf.
+
+GT-Annotation für Registrierung, Ein-/Austritt, Rückkehr und je G4-Aufnahme ein
+dreisekündiges Übergangsfenster. Rückkehrentscheidungen, die Ausgabe nach zwei
+Sekunden und Updateversuche in diesen Fenstern manuell anhand der Aufnahme und
+Exporte prüfen. Fehlregistrierungen, fehlende IDs und Detektions-/Trackingfehler
+bleiben im Ergebnis; nur GT-basierte Sichtbarkeit begründet vorab einen Ausschluss.
+Keine vollständigen Precision-/Recall-, IDF1- oder ID-Switch-Zahlen ohne dichte
+Referenztrajektorien. Der Versuchsstarter berechnet die GT-Metriken nicht automatisch;
+für diese manuelle Ereignisevaluation ist TrackEval keine Pflicht.
+Bedienung, Pilotrastersuche und Ergebnisprotokoll: [EVALUATION_RUNBOOK.md](EVALUATION_RUNBOOK.md).
 
 Weiterhin bekannte Grenzen: kein expliziter Ablauf alter Track-Zustände,
-mögliche Profilverunreinigung nach ID-Switches, keine Encoder-Versionsprüfung
-bei gleicher Dimension im bewusst geteilten interaktiven Bestand, nominale
-FPS-Zeitstempel statt ursprünglicher VFR-PTS. Modellwechsel mit neuer Datenbank
-auswerten. Profilupdate-Änderungen konsistent vor dem Einfrieren der Methode entscheiden.
+mögliche Profilverunreinigung nach ID-Switches trotz Ähnlichkeitsschutz, keine
+automatische Reparatur falscher Track-/Personenzuordnungen und nominale
+FPS-Zeitstempel statt ursprünglicher VFR-PTS. Die Standardpfade trennen
+Encoder-Konfigurationen; bei bewusst injizierten eigenen Speichern bleibt die
+Trennung Verantwortung des Aufrufers. Änderungen nach dem Einfrieren getrennt
+ausweisen. Vier Personen und Ereignisfenster erlauben keine breite Generalisierung.
 
 ## Prüfungen für diesen Branch
 
 `python -m unittest discover -s tests -v` prüft den ReID-Umfang und die konkreten
 Korrekturen mit temporären Daten und Fake-Komponenten. Zusätzlich laufen opt-in
-echte Modell-/Video-Tests für B0/A1/A2 mit künstlichen Clips ohne Personen.
+echte Modell-/Video-Tests für alle eingebauten Varianten mit künstlichen Clips ohne Personen.
 Beide echten Tests sind lokal erfolgreich. Damit wird weder eine
 ReID-Genauigkeit noch eine Echtzeitfähigkeit nachgewiesen. Das Paper enthält dafür
-weiterhin den Versuchsplan und noch nicht erhobene Ergebnisse.
+weiterhin den reduzierten Versuchsplan und noch nicht erhobene Ergebnisse.

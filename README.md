@@ -5,10 +5,12 @@ Video oder Webcam, YOLO-Personendetektion, ByteTrack/BoT-SORT, Person-Crops,
 Qualitätsprüfung, OSNet/Farbhistogramm, synthetische Personen-IDs und SQLite.
 
 **Start für Mitwirkende:** [Codebase Guide](docs/CODEBASE_GUIDE.md).
+**Eigene Tracker und Verfahren:** [Backend-Schnittstellen](docs/EXTENDING_BACKENDS.md).
+**Profilrechnung und Profilschutz:** [Personenprofile](docs/PROFILE_UPDATES.md).
 **Umfang und offene Voraussetzungen:** [Evaluationsstand](docs/EVALUATION_SCOPE.md).
 **Versuchsplan und Paper:** [LaTeX-Quelle](docs/technische_systemdokumentation.tex).
 
-Die quantitative Evaluation steht noch aus. B0/A1/A2 verwenden dokumentierte
+Die quantitative Evaluation steht noch aus. B0/A1/A2/A3 verwenden dokumentierte
 ReID-Gewichte beziehungsweise Farbhistogramme. Vollständige Frame-Exporte,
 isolierte Versuchsläufe und technische Laufmanifeste sind implementiert.
 Vor der eigentlichen Messung fehlen noch annotierte Pilot-/Testclips und deren
@@ -59,11 +61,15 @@ automatische Paketinstallationen während der Verarbeitung sind deaktiviert.
 | `default` | B0 | OSNet | 0,55 / 0,65 |
 | `colorhist` | A1 | HSV-Farbhistogramm | 0,55 / 0,65 |
 | `no_quality_thresholds` | A2 | OSNet | 0 / 0 |
+| `no_update_similarity` | A3 | OSNet | 0,55 / 0,65 |
 
 Alle Presets verwenden zunächst YOLOv8n, ByteTrack, Cosine-Schwellwert 0,82,
 Detektionskonfidenz 0,35, Eingangsgröße 640, drei Initialbeobachtungen und Updates
 alle fünf Frames. Die Mindest-Crop-Größe beträgt 30 x 80 Pixel.
 A2 behält Mindestgrößen, Qualitätsgewichtung und Snapshot-Auswahl bei.
+A3 verändert nur `min_update_similarity` auf -1: Updates und Qualitätsgrenzen
+bleiben aktiv, die zusätzliche Ähnlichkeitsprüfung ist aus. Die anderen Presets
+verwenden zunächst 0,82 für diese Prüfung. Das sind Ausgangs-, keine finalen Pilotwerte.
 
 Für einen vollständigen Clip ausdrücklich `--max-frames 0` verwenden; der
 interaktive Standard begrenzt den Lauf auf 500 Frames.
@@ -74,23 +80,30 @@ python -m app.main --source data/input/pilot.mp4 --mode default --max-frames 0
 python -m app.main --source data/input/pilot.mp4 --mode no_quality_thresholds --max-frames 0
 ```
 
-Diese Befehle verwenden standardmäßig dieselbe Datenbank. Unabhängige
+Diese Befehle verwenden einen geteilten Bestand **pro Encoder-Konfiguration**.
+Andere Encoder/Checkpoint-Inhalte erhalten andere Datenbanken. Unabhängige
 Versuchseinheiten brauchen getrennte Ausgangszustände und Pfade; die Befehle
 allein stellen noch keinen isolierten Vergleichslauf her.
 
 Für die eigentliche Evaluation stattdessen den isolierten Versuchsstarter nutzen:
 
 ```powershell
-python -m app.evaluation --sources data/input/test.mp4 --repetitions 3
+python -m app.evaluation --sources data/input/pilot.mp4
 ```
 
-Das verarbeitet das vollständige Video mit B0/A1/A2, je Variante/Wiederholung mit
-einer neuen Datenbank. Zusammengehörige Registrierung/Rückkehr (UC-12):
+Das verarbeitet das vollständige Video mit den vier eingebauten Ausgangspresets,
+je Variante mit neuer Datenbank. Für die finale, reduzierte Evaluation werden
+zunächst vier kalibrierte Kopien in der UI gespeichert. Zwölf getrennte Testsequenzen
+in vier Versuchsgruppen ergeben **48 Kernläufe**, keine durchgehende Frameannotation.
+Jede Sequenz separat starten, beispielsweise:
 
 ```powershell
-python -m app.evaluation --sources data/input/registrierung.mp4 data/input/rueckkehr.mp4 --modes default --repetitions 3
+python -m app.evaluation --sources data/input/g2_take1.mp4 --modes eval_b0 eval_a1 eval_a2 eval_a3 --device cpu
 ```
 
+Die `eval_*`-Presets sind selbst zu speichern; eingebaute Varianten übernehmen
+nicht automatisch bearbeitete B0-Werte. Bei Bedarf können zusammengehörige
+Registrierungs-/Rückkehrclips gemeinsam unter `--sources` angegeben werden.
 Alle übergebenen Quellen gehören **einer** Versuchseinheit an und teilen deren
 Profile; pro Quelle wird trotzdem ein frischer Tracker verwendet. Unabhängige
 Szenarien separat starten. Anleitung und Exportformat: [EVALUATION_RUNBOOK.md](docs/EVALUATION_RUNBOOK.md).
@@ -100,7 +113,7 @@ CLI-Optionen überschreiben das Preset. In der UI können Parameter ebenfalls
 angepasst werden. Es gibt einen gemeinsamen Editor: Preset laden, Parameter
 bearbeiten und entweder starten oder die aktuellen Werte als neues Preset speichern.
 Alle Laufzeitparameter aus `PipelineConfig` haben genau ein Eingabefeld. Dazu
-gehören alle vier konfigurierbaren Konfidenz-/Matching-/Qualitätsschwellen,
+gehören alle fünf konfigurierbaren Konfidenz-/Matching-/Qualitätsschwellen,
 Crop-Mindestgrößen, Padding und zeitliche Parameter. Schwellen lassen sich auch
 als genaue Dezimalwerte eingeben. Interne Tracker-Schwellen gehören zur gewählten
 Tracker-YAML; die festen Konstanten der Qualitätsheuristik werden nicht verändert.
@@ -148,7 +161,7 @@ Box ungetrackt und geht nicht in die Profilbildung ein.
 Standardpfade:
 
 - `data/input/`: Eingabevideos
-- `data/db/reid.sqlite3`: Profile, Ereignisse und Läufe
+- `data/db/encoders/<encoder_key>/reid.sqlite3`: Profile, Ereignisse und Läufe pro Encoder-Konfiguration
 - `data/snapshots/`: Personenausschnitte
 - `data/output/`: annotierte Videos
 - `data/output/runs/<run_id>/`: Exporte/Manifeste interaktiver geteilter Läufe

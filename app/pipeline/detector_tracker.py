@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+from typing import Any
 import numpy as np
 
 from app.storage.models import Detection
-from app.config import PROJECT_ROOT
+from app.config import PROJECT_ROOT, PipelineConfig
+from app.evaluation.artifacts import file_reference, tracker_reference
+from app.pipeline.contracts import PersonTracker
 
 
 class UltralyticsPersonTracker:
@@ -41,6 +45,14 @@ class UltralyticsPersonTracker:
         self.confidence = confidence
         self.image_size = image_size
         self.device = None if device == "auto" else device
+
+    def describe_backend(self) -> dict[str, Any]:
+        """Expose model provenance without leaking YOLO internals to the pipeline."""
+        checkpoint = getattr(self.model, "ckpt_path", None)
+        metadata: dict[str, Any] = {"tracker_config": self.tracker, "tracker": tracker_reference(self.tracker)}
+        if checkpoint:
+            metadata["detector"] = file_reference(Path(checkpoint))
+        return metadata
 
     def track_frame(self, frame_bgr: np.ndarray) -> list[Detection]:
         results = self.model.track(
@@ -81,3 +93,12 @@ class UltralyticsPersonTracker:
             )
 
         return detections
+
+
+def build_tracker(config: PipelineConfig) -> PersonTracker:
+    """Default composition only; alternative factories need not use Ultralytics."""
+    return UltralyticsPersonTracker(
+        model_name=config.yolo_model, tracker=config.tracker,
+        confidence=config.detection_confidence, image_size=config.image_size,
+        device=config.device,
+    )

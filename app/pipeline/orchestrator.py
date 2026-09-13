@@ -11,15 +11,20 @@ import sys
 import time
 from pathlib import Path
 from dataclasses import asdict, dataclass
-from typing import Callable, Protocol
+from typing import Any, Callable, Protocol
 
 import cv2
 import numpy as np
 
 from app.config import AppPaths, PipelineConfig
-from app.evaluation.artifacts import RunArtifacts, file_reference
-from app.pipeline.detector_tracker import UltralyticsPersonTracker
+from app.evaluation.artifacts import RunArtifacts
+from app.pipeline.contracts import BackendMetadata, EmbeddingEncoder, PersonTracker, ReleasableBackend, TrackerFactory
+from app.pipeline.detector_tracker import build_tracker
 from app.pipeline.reid_encoder import build_encoder
+from app.reid.repository import EmbeddingBatch, EvaluationRepository, ProfileManager, ProfileMatcher, ProfileUpdater
+from app.reid.service import ProfileService
+from app.reid.embeddings import checked_embedding
+from app.storage.encoder_paths import paths_for_encoder
 from app.storage.models import PipelineResult
 from app.storage.vector_store import SQLiteVectorStore
 from app.utils.camera_utils import CameraSource, open_camera_capture
@@ -64,15 +69,28 @@ class PersonReIdPipeline:
     """
 
     def __init__(self, config: PipelineConfig, paths: AppPaths | None = None, *,
-                 tracker=None, encoder=None, store=None) -> None:
+                 tracker: PersonTracker | None = None, encoder: EmbeddingEncoder | None = None,
+                 store: EvaluationRepository | None = None,
+                 profiles: ProfileManager | None = None,
+                 matcher: ProfileMatcher | None = None, updater: ProfileUpdater | None = None,
+                 tracker_factory: TrackerFactory = build_tracker) -> None:
+        if profiles is not None and (matcher is not None or updater is not None):
+            raise ValueError("Configure matcher/updater on the supplied profile manager, not on the pipeline.")
         self.config = config
-        self.paths = paths or AppPaths()
+        base_paths = paths if paths is not None else AppPaths()
+        # Base paths do not opt out of encoder isolation. Explicit repositories
+        # own their namespace and must not be rewritten by default composition.
+        self.paths = (paths_for_encoder(base_paths, config)
+                      if store is None and profiles is None else base_paths)
         self.paths.ensure()
         self.store = store if store is not None else SQLiteVectorStore(self.paths.db_path)
+        self.profiles = profiles if profiles is not None else ProfileService(
+            self.store, matcher=matcher, updater=updater, min_update_similarity=config.min_update_similarity)
         # Lazy loading makes model-start failures visible in the run manifest.
         # Injected collaborators enable integration tests without model downloads.
         self.tracker = tracker
         self.encoder = encoder
+        self.tracker_factory = tracker_factory
         self._has_processed = False
 
     def _open_capture(self, source: str | int | CameraSource) -> cv2.VideoCapture:
@@ -90,12 +108,15 @@ class PersonReIdPipeline:
 
     @staticmethod
     def _combined_embedding(candidates: list[TrackEmbeddingCandidate]) -> np.ndarray:
+        return checked_embedding(PersonReIdPipeline._embedding_batch(candidates).embedding_sum).astype(np.float32)
+
+    @staticmethod
+    def _embedding_batch(candidates: list[TrackEmbeddingCandidate]) -> EmbeddingBatch:
         if not candidates:
             raise ValueError("Cannot build an embedding from an empty candidate list.")
-        embeddings = np.stack([normalize_vector(candidate.embedding) for candidate in candidates], axis=0)
-        weights = np.asarray([max(candidate.quality_score, 0.05) for candidate in candidates], dtype=np.float32)
-        combined = np.average(embeddings, axis=0, weights=weights)
-        return normalize_vector(combined)
+        embeddings = np.stack([checked_embedding(candidate.embedding) for candidate in candidates], axis=0)
+        weights = np.asarray([max(candidate.quality_score, 0.05) for candidate in candidates], dtype=np.float64)
+        return EmbeddingBatch(np.sum(embeddings * weights[:, None], axis=0), float(weights.sum()), len(candidates))
 
     @staticmethod
     def _best_candidate(candidates: list[TrackEmbeddingCandidate]) -> TrackEmbeddingCandidate:
@@ -170,21 +191,38 @@ class PersonReIdPipeline:
             load_started = time.perf_counter()
             try:
                 if getattr(self, "tracker", None) is None:
-                    self.tracker = UltralyticsPersonTracker(
-                        model_name=self.config.yolo_model, tracker=self.config.tracker,
-                        confidence=self.config.detection_confidence, image_size=self.config.image_size,
-                        device=self.config.device,
-                    )
+                    self.tracker = self.tracker_factory(self.config)
+                if isinstance(self.tracker, ReleasableBackend):
+                    resources.append(self.tracker)
                 if getattr(self, "encoder", None) is None:
                     self.encoder = build_encoder(
                         self.config.encoder_backend, device=self.config.device,
                         model_name=self.config.reid_model_name, checkpoint_path=self.config.reid_checkpoint,
                     )
+                if isinstance(self.encoder, ReleasableBackend) and self.encoder is not self.tracker:
+                    resources.append(self.encoder)
             finally:
                 load_seconds = time.perf_counter() - load_started
-            checkpoint_path = getattr(getattr(self.tracker, "model", None), "ckpt_path", None)
-            if checkpoint_path:
-                artifacts.metadata["models"]["detector"] = file_reference(Path(checkpoint_path))
+            components: dict[str, dict[str, Any]] = {}
+            for label, backend in (("tracker", self.tracker), ("encoder", self.encoder), ("profiles", self.profiles)):
+                description: dict[str, Any] = {"implementation": f"{type(backend).__module__}.{type(backend).__qualname__}"}
+                if isinstance(backend, BackendMetadata):
+                    description["metadata"] = backend.describe_backend()
+                components[label] = description
+            artifacts.metadata["components"] = components
+            # Configured defaults must not masquerade as actual injected models.
+            artifacts.metadata["configured_models"] = artifacts.metadata["models"]
+            tracker_metadata = components["tracker"].get("metadata", {})
+            encoder_metadata = components["encoder"].get("metadata", {})
+            unknown_model = {"sha256": None, "note": "Injected backend supplied no model reference."}
+            artifacts.metadata["models"] = {
+                "detector": tracker_metadata.get("detector", dict(unknown_model)),
+                "tracker": tracker_metadata.get("tracker", dict(unknown_model)),
+                "encoder": encoder_metadata.get("encoder", {
+                    "backend": components["encoder"]["implementation"], "model_name": None,
+                    "checkpoint": None, "note": "Injected backend supplied no model reference.",
+                }),
+            }
             artifacts.metadata["environment"]["requested_device"] = self.config.device
             artifacts.metadata["environment"]["encoder_device"] = getattr(self.encoder, "device", "cpu")
             try:
@@ -226,10 +264,8 @@ class PersonReIdPipeline:
             try:
                 artifacts.finish(status=status, error=final_error, processing_seconds=processing_seconds,
                                  model_load_seconds=load_seconds, total_seconds=time.perf_counter() - total_started)
-                finish_run = getattr(self.store, "finish_analysis_run", None)
-                if callable(finish_run):
-                    finish_run(run_id, status=status, processed_frames=artifacts.processed_frames,
-                               error=str(final_error) if final_error else None)
+                self.store.finish_analysis_run(run_id, status=status, processed_frames=artifacts.processed_frames,
+                                               error=str(final_error) if final_error else None)
             except Exception as exc:
                 # A DB finalization failure must not leave a success manifest.
                 if error is None:
@@ -256,6 +292,7 @@ class PersonReIdPipeline:
         frame_callback: FrameCallback | None = None,
     ) -> PipelineResult:
 
+        assert self.tracker is not None and self.encoder is not None
         total_frames_raw = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         total_frames = total_frames_raw if total_frames_raw > 0 else None
         if self.config.max_frames > 0:
@@ -341,6 +378,7 @@ class PersonReIdPipeline:
                     "class_id": detection.class_id, "track_id": detection.track_id, "person_id": person_id,
                     "match_score": score, "state": "known_track" if person_id else "pending",
                     "quality_score": None, "decision_frame_index": None, "snapshot_frame_index": None,
+                    "profile_update_accepted": None, "update_similarity": None, "profile_update_reason": None,
                 }
                 frame_predictions.append(prediction)
                 if detection.track_id is None:
@@ -385,7 +423,10 @@ class PersonReIdPipeline:
                             )
                         continue
 
-                    embedding = self.encoder.encode(crop)
+                    embedding = checked_embedding(self.encoder.encode(crop))
+                    if hasattr(self, "_embedding_dimension") and embedding.size != self._embedding_dimension:
+                        raise ValueError("The encoder changed its embedding dimension within a run.")
+                    self._embedding_dimension = embedding.size
                     candidate = TrackEmbeddingCandidate(
                         embedding=embedding,
                         quality_score=quality_score,
@@ -420,14 +461,14 @@ class PersonReIdPipeline:
                         combined_embedding = self._combined_embedding(candidates)
                         best_candidate = self._best_candidate(candidates)
                         quality_average = float(np.mean([item.quality_score for item in candidates]))
-                        match = self.store.search(
+                        match = self.profiles.search(
                             combined_embedding,
                             threshold=self.config.match_threshold,
                             exclude_person_ids=used_person_ids_this_frame,
                         )
 
                         if match is None:
-                            person_id = self.store.create_person_id()
+                            person_id = self.profiles.create_person_id()
                             score = None
                             created_persons += 1
                         else:
@@ -442,7 +483,7 @@ class PersonReIdPipeline:
                             best_candidate.frame_index,
                             run_id=run_id,
                         )
-                        self.store.add_or_update_person(
+                        decision = self.profiles.add_or_update_person(
                             person_id=person_id,
                             embedding=combined_embedding,
                             source=self._source_to_label(source),
@@ -459,6 +500,7 @@ class PersonReIdPipeline:
                                 quality_average=quality_average,
                                 decision_frame_index=frame_index,
                             ),
+                            batch=self._embedding_batch(candidates),
                         )
 
                         track_to_person[detection.track_id] = person_id
@@ -467,12 +509,16 @@ class PersonReIdPipeline:
                         prediction.update(person_id=person_id, match_score=score,
                                           state="created_identity" if match is None else "matched_identity",
                                           decision_frame_index=frame_index, snapshot_frame_index=best_candidate.frame_index)
+                        prediction.update(profile_update_accepted=decision.accepted,
+                                          update_similarity=decision.similarity, profile_update_reason=decision.reason)
+                        if not decision.accepted:
+                            prediction["state"] = "matched_identity_update_rejected"
 
                     # Known tracks only update their durable profile with a
                     # stricter quality threshold than the initial candidate gate.
                     elif quality_score >= self.config.min_update_quality:
                         snapshot_path = save_crop(candidate.crop, self.paths.snapshot_dir, person_id, frame_index, run_id=run_id)
-                        self.store.add_or_update_person(
+                        decision = self.profiles.add_or_update_person(
                             person_id=person_id,
                             embedding=normalize_vector(candidate.embedding),
                             source=self._source_to_label(source),
@@ -489,7 +535,9 @@ class PersonReIdPipeline:
                                 decision_frame_index=frame_index,
                             ),
                         )
-                        prediction.update(state="profile_update", snapshot_frame_index=frame_index)
+                        prediction.update(state="profile_update" if decision.accepted else "profile_update_rejected",
+                                          snapshot_frame_index=frame_index, profile_update_accepted=decision.accepted,
+                                          update_similarity=decision.similarity, profile_update_reason=decision.reason)
                     else:
                         prediction["state"] = "below_update_quality"
                         skipped_low_quality += 1
@@ -540,7 +588,7 @@ class PersonReIdPipeline:
                 "Some tracks were not assigned immediately because the pipeline waited for enough good frames."
             )
 
-        persons = self.store.list_persons()
+        persons = self.profiles.list_persons()
         return PipelineResult(
             output_video_path=output_path,
             processed_frames=frame_index,

@@ -13,12 +13,18 @@ from pathlib import Path
 
 from app.config import AppPaths
 from app.modes.base_mode import ModeConfig
-from app.modes.default_mode import build_colorhist_mode, build_default_mode, build_no_quality_thresholds_mode
+from app.modes.default_mode import (
+    build_colorhist_mode,
+    build_default_mode,
+    build_no_quality_thresholds_mode,
+    build_no_update_similarity_mode,
+)
 
 _BUILTIN_MODES = (
     build_default_mode,
     build_colorhist_mode,
     build_no_quality_thresholds_mode,
+    build_no_update_similarity_mode,
 )
 
 

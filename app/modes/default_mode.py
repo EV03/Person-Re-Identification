@@ -1,4 +1,4 @@
-"""The three controlled ReID presets used in the evaluation plan."""
+"""Four evaluation starting presets; calibrate and freeze copies on pilot data."""
 
 from __future__ import annotations
 
@@ -36,4 +36,15 @@ def build_no_quality_thresholds_mode() -> ModeConfig:
         description="B0 mit beiden Qualitätsschwellen auf null; Mindestgrößen und Gewichtung bleiben erhalten.",
         min_embedding_quality=0.0,
         min_update_quality=0.0,
+    )
+
+
+def build_no_update_similarity_mode() -> ModeConfig:
+    """A3 disables only the similarity gate; quality-filtered updates remain on."""
+    return replace(
+        build_default_mode(),
+        mode_id="no_update_similarity",
+        name="A3 - Ohne Update-Ähnlichkeitsschutz",
+        description="B0 ohne Ähnlichkeitsprüfung vor Profilupdates; Qualitätsgrenzen und Updates bleiben erhalten.",
+        min_update_similarity=-1.0,
     )

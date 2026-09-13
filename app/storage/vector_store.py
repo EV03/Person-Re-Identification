@@ -1,4 +1,4 @@
-"""SQLite persistence and exact cosine search for person embeddings."""
+"""SQLite persistence adapter; identity decisions live in app.reid."""
 
 from __future__ import annotations
 
@@ -13,16 +13,17 @@ import pandas as pd
 
 from app.storage.models import MatchResult, PersonRecord, Payload
 from app.utils.id_utils import format_person_id, utc_now_iso
-from app.utils.image_utils import cosine_similarity, normalize_vector
+from app.reid.repository import IdentityProfile, ProfileObservation
+from app.reid.service import ProfileService
 
 
 class SQLiteVectorStore:
     """Small local vector store backed by SQLite.
 
-    It stores one quality-gated mean embedding per synthetic person ID and event
-    rows for observations. Similarity search is computed in Python using cosine
-    similarity. For a small MVP this keeps setup minimal and avoids a separate
-    vector DB server.
+    Persists profiles, observations and run metadata. Matching and profile
+    arithmetic belong to ProfileService and its replaceable policies.
+    Compatibility methods delegate to that service; new callers should inject
+    ProfileService explicitly.
     """
 
     def __init__(self, db_path: Path) -> None:
@@ -65,6 +66,7 @@ class SQLiteVectorStore:
                 """
             )
             self._ensure_column(conn, "persons", "embedding_weight_sum", "REAL NOT NULL DEFAULT 1.0")
+            self._ensure_column(conn, "persons", "embedding_sum", "TEXT")
             self._ensure_column(conn, "persons", "best_snapshot_quality", "REAL NOT NULL DEFAULT 0.0")
 
             conn.execute(
@@ -113,32 +115,11 @@ class SQLiteVectorStore:
 
     @staticmethod
     def _vector_to_json(vector: np.ndarray) -> str:
-        return json.dumps(normalize_vector(vector).astype(float).tolist())
+        return json.dumps(vector.astype(float).tolist())
 
     @staticmethod
     def _json_to_vector(value: str) -> np.ndarray:
-        return np.asarray(json.loads(value), dtype=np.float32)
-
-    @staticmethod
-    def _embedding_weight_from_payload(payload: Payload | None) -> float:
-        if not payload:
-            return 1.0
-        raw_weight = payload.get("embedding_weight", payload.get("quality_score", 1.0))
-        try:
-            weight = float(raw_weight)
-        except (TypeError, ValueError):
-            return 1.0
-        return float(np.clip(weight, 0.05, 1.0))
-
-    @staticmethod
-    def _snapshot_quality_from_payload(payload: Payload | None) -> float:
-        if not payload:
-            return 0.0
-        raw_quality = payload.get("snapshot_quality", payload.get("quality_score", 0.0))
-        try:
-            return float(np.clip(float(raw_quality), 0.0, 1.0))
-        except (TypeError, ValueError):
-            return 0.0
+        return np.asarray(json.loads(value), dtype=np.float64)
 
     def count_persons(self) -> int:
         with self._connect() as conn:
@@ -194,133 +175,74 @@ class SQLiteVectorStore:
             conn.execute("UPDATE analysis_runs SET status=?, processed_frames=?, finished_at=?, error=? WHERE run_id=?",
                          (status, processed_frames, utc_now_iso(), error, run_id))
 
-    def search(self, embedding: np.ndarray, threshold: float, exclude_person_ids: set[str] | None = None) -> MatchResult | None:
-        exclude_person_ids = exclude_person_ids or set()
-        query = normalize_vector(embedding)
-        best_person_id: str | None = None
-        best_score = -1.0
+    @classmethod
+    def _row_to_profile(cls, row: sqlite3.Row) -> IdentityProfile:
+        return IdentityProfile(
+            person_id=str(row["person_id"]), embedding=cls._json_to_vector(row["mean_embedding"]),
+            observations=int(row["observations"]),
+            embedding_weight_sum=float(row["embedding_weight_sum"] or max(int(row["observations"]), 1)),
+            created_at=str(row["created_at"]), last_seen=str(row["last_seen"]),
+            best_snapshot_path=row["best_snapshot_path"],
+            best_snapshot_quality=float(row["best_snapshot_quality"] or 0.0),
+            embedding_sum=cls._json_to_vector(row["embedding_sum"]) if row["embedding_sum"] is not None else None,
+        )
 
+    def get_profile(self, person_id: str) -> IdentityProfile | None:
         with self._connect() as conn:
-            rows = conn.execute("SELECT person_id, mean_embedding FROM persons").fetchall()
+            row = conn.execute("SELECT * FROM persons WHERE person_id = ?", (person_id,)).fetchone()
+        return self._row_to_profile(row) if row is not None else None
 
-        for row in rows:
-            person_id = str(row["person_id"])
-            if person_id in exclude_person_ids:
-                continue
-            candidate = self._json_to_vector(row["mean_embedding"])
-            if candidate.shape != query.shape:
-                # A database can contain old ColorHistogram 32D vectors while
-                # OSNet emits 512D vectors. Ignore incompatible rows instead of
-                # crashing with a shape mismatch.
-                continue
-            score = cosine_similarity(query, candidate)
-            if score > best_score:
-                best_person_id = person_id
-                best_score = score
-
-        if best_person_id is None or best_score < threshold:
-            return None
-
-        return MatchResult(person_id=best_person_id, score=best_score, is_new=False)
-
-    def add_or_update_person(
-        self,
-        person_id: str,
-        embedding: np.ndarray,
-        source: str,
-        frame_index: int,
-        track_id: int,
-        bbox_xyxy: tuple[int, int, int, int],
-        score: float | None,
-        snapshot_path: str | None,
-        payload: Payload | None = None,
-    ) -> None:
-        now = utc_now_iso()
-        payload = payload or {}
-        embedding = normalize_vector(embedding)
-        bbox_json = json.dumps(list(bbox_xyxy))
-        payload_json = json.dumps(payload, ensure_ascii=False)
-        embedding_weight = self._embedding_weight_from_payload(payload)
-        snapshot_quality = self._snapshot_quality_from_payload(payload)
-
+    def iter_profiles(self) -> list[IdentityProfile]:
         with self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT mean_embedding, observations, embedding_weight_sum, best_snapshot_path, best_snapshot_quality
-                FROM persons
-                WHERE person_id = ?
-                """,
-                (person_id,),
-            ).fetchone()
+            rows = conn.execute("SELECT * FROM persons").fetchall()
+        return [self._row_to_profile(row) for row in rows]
 
-            if row is None:
-                conn.execute(
-                    """
-                    INSERT INTO persons (
-                        person_id, mean_embedding, observations, embedding_weight_sum,
-                        created_at, last_seen, best_snapshot_path, best_snapshot_quality
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        person_id,
-                        self._vector_to_json(embedding),
-                        1,
-                        embedding_weight,
-                        now,
-                        now,
-                        snapshot_path,
-                        snapshot_quality,
-                    ),
-                )
-            else:
-                old_embedding = self._json_to_vector(row["mean_embedding"])
-                old_observations = int(row["observations"])
-                old_weight_sum = float(row["embedding_weight_sum"] or max(old_observations, 1))
-                new_observations = old_observations + 1
-                new_weight_sum = old_weight_sum + embedding_weight
-
-                if old_embedding.shape == embedding.shape:
-                    mean_embedding = normalize_vector(
-                        (old_embedding * old_weight_sum + embedding * embedding_weight) / new_weight_sum
-                    )
-                else:
-                    # Encoder changed. Replace the incompatible mean vector with
-                    # the current vector and continue without breaking the run.
-                    mean_embedding = embedding
-                    new_weight_sum = embedding_weight
-
-                best_snapshot_path = row["best_snapshot_path"] or snapshot_path
-                best_snapshot_quality = float(row["best_snapshot_quality"] or 0.0)
-                if snapshot_path and snapshot_quality >= best_snapshot_quality:
-                    best_snapshot_path = snapshot_path
-                    best_snapshot_quality = snapshot_quality
-
-                conn.execute(
-                    """
-                    UPDATE persons
-                    SET mean_embedding = ?, observations = ?, embedding_weight_sum = ?,
-                        last_seen = ?, best_snapshot_path = ?, best_snapshot_quality = ?
-                    WHERE person_id = ?
-                    """,
-                    (
-                        self._vector_to_json(mean_embedding),
-                        new_observations,
-                        new_weight_sum,
-                        now,
-                        best_snapshot_path,
-                        best_snapshot_quality,
-                        person_id,
-                    ),
-                )
-
+    def save_observation(self, profile: IdentityProfile, observation: ProfileObservation) -> None:
+        """Commit state and event together; perform no vector arithmetic."""
+        if profile.person_id != observation.person_id:
+            raise ValueError("Profile and observation must refer to the same person.")
+        with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO events (person_id, source, frame_index, track_id, score, bbox_json, snapshot_path, created_at, payload_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO persons (
+                    person_id, mean_embedding, observations, embedding_weight_sum,
+                    created_at, last_seen, best_snapshot_path, best_snapshot_quality, embedding_sum
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(person_id) DO UPDATE SET
+                    mean_embedding=excluded.mean_embedding, observations=excluded.observations,
+                    embedding_weight_sum=excluded.embedding_weight_sum, last_seen=excluded.last_seen,
+                    best_snapshot_path=excluded.best_snapshot_path,
+                    best_snapshot_quality=excluded.best_snapshot_quality, embedding_sum=excluded.embedding_sum
                 """,
-                (person_id, source, frame_index, track_id, score, bbox_json, snapshot_path, now, payload_json),
+                (profile.person_id, self._vector_to_json(profile.embedding), profile.observations,
+                 profile.embedding_weight_sum, profile.created_at, profile.last_seen,
+                 profile.best_snapshot_path, profile.best_snapshot_quality,
+                 self._vector_to_json(profile.embedding_sum) if profile.embedding_sum is not None else None),
             )
+            conn.execute(
+                """
+                INSERT INTO events (
+                    person_id, source, frame_index, track_id, score, bbox_json,
+                    snapshot_path, created_at, payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (observation.person_id, observation.source, observation.frame_index, observation.track_id,
+                 observation.score, json.dumps(list(observation.bbox_xyxy)), observation.snapshot_path,
+                 observation.created_at, json.dumps(observation.payload, ensure_ascii=False)),
+            )
+
+    def search(self, embedding: np.ndarray, threshold: float,
+               exclude_person_ids: set[str] | None = None) -> MatchResult | None:
+        """Compatibility facade; use ProfileService in new application code."""
+        return ProfileService(self).search(embedding, threshold, exclude_person_ids)
+
+    def add_or_update_person(self, person_id: str, embedding: np.ndarray, source: str,
+                             frame_index: int, track_id: int, bbox_xyxy: tuple[int, int, int, int],
+                             score: float | None, snapshot_path: str | None,
+                             payload: Payload | None = None) -> None:
+        """Compatibility facade; no matching/update policy is implemented here."""
+        ProfileService(self).add_or_update_person(person_id, embedding, source, frame_index,
+                                                  track_id, bbox_xyxy, score, snapshot_path, payload)
 
     def list_persons(self) -> list[PersonRecord]:
         with self._connect() as conn:

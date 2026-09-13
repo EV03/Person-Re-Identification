@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import importlib
+from typing import Any
 
 import cv2
 import numpy as np
 
 from app.utils.image_utils import normalize_vector
-from app.evaluation.artifacts import resolve_project_file, sha256_file
-from app.pipeline.model_weights import DEFAULT_CHECKPOINT_PATH, DEFAULT_CHECKPOINT_SHA256
+from app.evaluation.artifacts import file_reference, resolve_project_file, sha256_file
+from app.pipeline.model_weights import DEFAULT_CHECKPOINT_PATH, DEFAULT_CHECKPOINT_SHA256, DEFAULT_CHECKPOINT_PROVENANCE
 
 
 class ReIdEncoder(ABC):
@@ -26,6 +27,10 @@ class ColorHistogramEncoder(ReIdEncoder):
     pipeline without installing heavy ReID dependencies. It is not robust enough
     for production-grade person re-identification.
     """
+
+    def describe_backend(self) -> dict[str, Any]:
+        return {"encoder": {"backend": "colorhist", "model_name": None, "checkpoint": None,
+                            "bins": [self.bins_h, self.bins_s, self.bins_v]}}
 
     def __init__(self, bins_h: int = 16, bins_s: int = 8, bins_v: int = 8) -> None:
         self.bins_h = bins_h
@@ -103,6 +108,15 @@ class TorchreidOSNetEncoder(ReIdEncoder):
             raise ValueError("OSNet did not load all required checkpoint tensors exactly.")
         self.embedding_dim = int(getattr(self.extractor.model, "feature_dim", 512))
         self.device = device
+        self.model_name = model_name
+        self.checkpoint_reference = file_reference(checkpoint)
+        self.checkpoint_reference["provenance"] = (DEFAULT_CHECKPOINT_PROVENANCE
+            if self.checkpoint_sha256 == DEFAULT_CHECKPOINT_SHA256
+            else {"note": "User-supplied weights; document source and training data."})
+
+    def describe_backend(self) -> dict[str, Any]:
+        return {"encoder": {"backend": "torchreid", "model_name": self.model_name,
+                            "checkpoint": self.checkpoint_reference}, "device": self.device}
 
     def encode(self, crop_bgr: np.ndarray) -> np.ndarray:
         crop_rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)

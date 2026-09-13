@@ -16,6 +16,7 @@ from app.modes.base_mode import ModeConfig
 from app.modes.mode_registry import builtin_modes, list_modes, save_custom_mode
 from app.pipeline.orchestrator import PersonReIdPipeline
 from app.storage.models import Detection, MatchResult
+from app.reid.repository import ProfileUpdateDecision
 from app.storage.vector_store import SQLiteVectorStore
 from tests.test_pipeline_resources import FakeCapture, FakeWriter
 
@@ -32,14 +33,17 @@ def paths_for(base: Path) -> AppPaths:
 
 class EvaluationPresetTests(unittest.TestCase):
     def test_only_documented_variants_are_built_in(self) -> None:
-        self.assertEqual(set(builtin_modes()), {"default", "colorhist", "no_quality_thresholds"})
+        self.assertEqual(set(builtin_modes()), {
+            "default", "colorhist", "no_quality_thresholds", "no_update_similarity",
+        })
 
-    def test_a1_and_a2_change_only_the_documented_parameters(self) -> None:
+    def test_a1_a2_and_a3_change_only_the_documented_parameters(self) -> None:
         modes = builtin_modes()
         base = asdict(modes["default"].to_pipeline_config())
         for name, expected in (
             ("colorhist", {"encoder_backend"}),
             ("no_quality_thresholds", {"min_embedding_quality", "min_update_quality"}),
+            ("no_update_similarity", {"min_update_similarity"}),
         ):
             with self.subTest(mode=name):
                 variant = asdict(modes[name].to_pipeline_config())
@@ -48,6 +52,7 @@ class EvaluationPresetTests(unittest.TestCase):
         self.assertEqual(modes["colorhist"].encoder_backend, "colorhist")
         self.assertEqual(modes["no_quality_thresholds"].min_embedding_quality, 0)
         self.assertEqual(modes["no_quality_thresholds"].min_update_quality, 0)
+        self.assertEqual(modes["no_update_similarity"].min_update_similarity, -1)
 
     def test_custom_preset_round_trip_preserves_name_and_overrides(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
@@ -134,6 +139,9 @@ class SequenceTracker:
 
 
 class MemoryStore:
+    def finish_analysis_run(self, *_args, **_kwargs) -> None:
+        return None
+
     def __init__(self) -> None:
         self.ids: list[str] = []
         self.observations: list[dict] = []
@@ -153,8 +161,9 @@ class MemoryStore:
         self.ids.append(person_id)
         return person_id
 
-    def add_or_update_person(self, **kwargs) -> None:
+    def add_or_update_person(self, **kwargs) -> ProfileUpdateDecision:
         self.observations.append(kwargs)
+        return ProfileUpdateDecision(True, None, "test_update")
 
     def list_persons(self) -> list:
         return []
@@ -178,6 +187,7 @@ class ReIdPipelineScopeTests(unittest.TestCase):
             pipeline.tracker = SequenceTracker(detections)
             pipeline.encoder = RecordingEncoder()
             pipeline.store = MemoryStore()
+            pipeline.profiles = pipeline.store
             writer = FakeWriter()
             with patch("app.pipeline.orchestrator.cv2.VideoWriter", return_value=writer), patch(
                 "app.pipeline.orchestrator.save_crop", return_value=Path(folder) / "snapshot.jpg"

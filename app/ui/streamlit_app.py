@@ -24,6 +24,7 @@ from app.modes.base_mode import ModeConfig
 from app.modes.mode_registry import list_modes, normalize_mode_id, save_custom_mode
 from app.pipeline.orchestrator import PersonReIdPipeline
 from app.storage.vector_store import SQLiteVectorStore
+from app.storage.encoder_paths import paths_for_encoder
 from app.evaluation.runner import create_unit_paths
 from app.ui.config_editor import (
     RUNTIME_PARAMETER_FIELDS,
@@ -95,6 +96,7 @@ def render_pipeline_editor() -> dict[str, object]:
         ("detection_confidence", "Detection confidence", 0.0001, 1.0, "Konfidenzgrenze für YOLO. Muss positiv sein: Ultralytics würde exakt 0 intern durch 0,1 ersetzen."),
         ("min_embedding_quality", "Min crop quality for ReID candidates", 0.0, 1.0, "0 deaktiviert diese Qualitätsschwelle; Mindestgrößen und Qualitätsgewichtung bleiben erhalten."),
         ("min_update_quality", "Min crop quality for person embedding updates", 0.0, 1.0, "Updates müssen zusätzlich die Kandidatenschwelle erfüllen."),
+        ("min_update_similarity", "Min similarity for person embedding updates", -1.0, 1.0, "Zusätzlicher Profilschutz: Das neue Embedding muss zum bestehenden Personenprofil passen. -1 lässt alle gültigen Ähnlichkeiten zu. Auf Pilotclips abstimmen."),
     ):
         st.number_input(label, min_value=lower, max_value=upper, step=0.01,
                         format="%.4f", key=f"pipeline_{field}", help=help_text)
@@ -121,7 +123,7 @@ def render_pipeline_editor() -> dict[str, object]:
 
 def render_save_mode_form(paths: AppPaths, config: PipelineConfig) -> None:
     with st.expander("Aktuelle Einstellungen als neue Versuchskonfiguration speichern"):
-        st.caption("Speichert exakt alle oben eingestellten Pipeline-Parameter. B0/A1/A2 und vorhandene Presets werden nicht überschrieben.")
+        st.caption("Speichert exakt alle oben eingestellten Pipeline-Parameter. B0/A1/A2/A3 und vorhandene Presets werden nicht überschrieben.")
         with st.form("save_current_configuration"):
             custom_name = st.text_input("Mode name", value="Mein ReID-Pilot")
             custom_mode_id_raw = st.text_input("Mode id", value="mein_reid_pilot")
@@ -150,7 +152,7 @@ paths.ensure()
 
 st.title("Local Person Re-Identification MVP")
 st.caption("Forschungsprototyp: YOLO, Tracking, qualitätsgefilterte ReID und lokale SQLite-Speicherung")
-st.caption("B0/A1/A2: OSNet mit dokumentierten ReID-Gewichten, vollständiger Frame-Export und Laufmanifest. Parameter vor den Testclips einfrieren.")
+st.caption("B0/A1/A2/A3 sind Ausgangspresets: Pilotwerte als eigene Konfigurationen speichern und vor den Testclips einfrieren. Frame-Export und Laufmanifest sind vorbereitet.")
 
 modes = list_modes(paths)
 pending_preset_id = st.session_state.pop("pending_preset_id", None)
@@ -198,7 +200,10 @@ with st.sidebar:
     st.header("Quelle und Anzeige (nicht Teil des Presets)")
     input_type = st.radio("Input type", ["Video upload", "Local webcam"], index=0)
     isolated_run = st.checkbox("Isolierter Lauf (neue Datenbank)", value=True,
-                               help="Standard für unabhängige Versuche. Deaktivieren teilt den bisherigen interaktiven Profilbestand; für UC-12 den CLI-Versuchsstarter mit beiden Videos verwenden.")
+                               help="Standard für unabhängige Versuche. Deaktivieren verwendet den gemeinsamen Bestand dieses Encoders/Checkpoints. Andere Encoder haben eigene Datenbanken; für Registrierung/Rückkehr über zwei Videos den Versuchsstarter mit beiden Quellen verwenden.")
+    shared_encoder_paths = paths_for_encoder(paths, config)
+    if not isolated_run:
+        st.caption(f"Gemeinsamer Profilbestand dieses Encoders: {shared_encoder_paths.db_path}")
     show_live_preview = st.checkbox("Show live annotated preview", value=True)
     preview_width = st.slider("Preview width", min_value=480, max_value=1400, value=960, step=40)
 
@@ -295,7 +300,7 @@ with col_run:
     )
 
 with col_db:
-    displayed_paths = st.session_state.get("last_run_paths", paths)
+    displayed_paths = st.session_state.get("last_run_paths", shared_encoder_paths)
     store = SQLiteVectorStore(displayed_paths.db_path)
     st.metric("Synthetic persons in displayed database", store.count_persons())
 
@@ -333,6 +338,7 @@ if run_clicked and source is not None:
     pipeline = None
     try:
         run_paths = create_unit_paths(base_paths=paths, mode_id=config.mode_id) if isolated_run else paths
+        run_paths = paths_for_encoder(run_paths, config)
         st.session_state["last_run_paths"] = run_paths
         pipeline = PersonReIdPipeline(config=config, paths=run_paths)
         result = pipeline.process(source, progress_callback=update_progress, frame_callback=update_live_preview)
@@ -367,7 +373,7 @@ if run_clicked and source is not None:
 
 st.divider()
 
-displayed_paths = st.session_state.get("last_run_paths", paths)
+displayed_paths = st.session_state.get("last_run_paths", shared_encoder_paths)
 store = SQLiteVectorStore(displayed_paths.db_path)
 st.caption(f"Angezeigte Datenbank: {displayed_paths.db_path}")
 persons_df = store.persons_dataframe()

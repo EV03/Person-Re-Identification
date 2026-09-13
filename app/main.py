@@ -7,6 +7,7 @@ import argparse
 from app.config import AppPaths
 from app.modes.mode_registry import get_mode, list_modes
 from app.pipeline.orchestrator import PersonReIdPipeline
+from app.storage.encoder_paths import paths_for_encoder
 
 
 def parse_args() -> argparse.Namespace:
@@ -22,6 +23,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tracker", default=None, help="Tracker config: bytetrack.yaml or botsort.yaml")
     parser.add_argument("--encoder", default=None, choices=["colorhist", "torchreid"], help="ReID encoder backend")
     parser.add_argument("--threshold", type=float, default=None, help="Cosine similarity threshold")
+    parser.add_argument("--update-similarity", type=float, default=None, help="Minimum similarity before updating an existing profile")
     parser.add_argument("--max-frames", type=int, default=None, help="Max frames to process; 0 processes the full video")
     parser.add_argument("--device", default=None, help="auto, cpu or cuda")
     parser.add_argument("--checkpoint", default=None, help="Explicit ReID checkpoint path")
@@ -47,6 +49,8 @@ def main() -> None:
         overrides["encoder_backend"] = args.encoder
     if args.threshold is not None:
         overrides["match_threshold"] = args.threshold
+    if args.update_similarity is not None:
+        overrides["min_update_similarity"] = args.update_similarity
     if args.max_frames is not None:
         overrides["max_frames"] = args.max_frames
     if args.device is not None:
@@ -57,6 +61,7 @@ def main() -> None:
         overrides["reid_model_name"] = args.reid_model
 
     config = mode.to_pipeline_config(**overrides)
+    paths = paths_for_encoder(paths, config)
     pipeline = PersonReIdPipeline(config=config, paths=paths)
 
     def progress(current: int, total: int | None, message: str) -> None:
@@ -67,6 +72,7 @@ def main() -> None:
     print("\nDone")
     print(f"Mode: {result.mode_name} ({result.mode_id})")
     print(f"Run ID: {result.run_id}")
+    print(f"Profile database: {paths.db_path}")
     print(f"Output video: {result.output_video_path}")
     print(f"Processed frames: {result.processed_frames}")
     print(f"Created persons: {result.created_persons}")

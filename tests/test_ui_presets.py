@@ -34,6 +34,7 @@ EDITED_PARAMETERS = {
     "min_good_frames_before_reid": 4,
     "min_embedding_quality": .4217,
     "min_update_quality": .8765,
+    "min_update_similarity": .8234,
     "max_frames": 0,
     "min_crop_height": 51,
     "min_crop_width": 17,
@@ -56,6 +57,27 @@ def edit_every_parameter(app):
 
 
 class UiPresetTests(unittest.TestCase):
+    def test_nonisolated_runs_switch_encoder_database_and_return_to_original(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            paths = paths_for(Path(folder))
+            with patch("app.config.AppPaths", return_value=paths), patch(
+                "app.utils.camera_utils.scan_local_cameras", return_value=[]
+            ), patch("app.pipeline.orchestrator.PersonReIdPipeline") as constructor:
+                constructor.return_value.process.return_value = PipelineResult(
+                    output_video_path=None, processed_frames=1, created_persons=0, matched_events=0)
+                app = AppTest.from_file("app/ui/streamlit_app.py").run()
+                next(w for w in app.checkbox if w.label == "Isolierter Lauf (neue Datenbank)").uncheck().run()
+                next(w for w in app.radio if w.label == "Input type").set_value("Local webcam").run()
+                next(w for w in app.checkbox if w.label == "Use manual camera index").check().run()
+                databases = []
+                for backend in ("torchreid", "colorhist", "torchreid"):
+                    keyed_widget(app, "pipeline_encoder_backend").select(backend).run()
+                    next(w for w in app.button if w.label.startswith("Run ")).click().run()
+                    self.assertFalse(app.exception)
+                    databases.append(constructor.call_args.kwargs["paths"].db_path)
+                self.assertNotEqual(databases[0], databases[1])
+                self.assertEqual(databases[0], databases[2])
+
     def test_reference_and_comparison_presets_render_with_correct_parameters(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             paths = paths_for(Path(folder))
@@ -63,14 +85,16 @@ class UiPresetTests(unittest.TestCase):
                 app = AppTest.from_file("app/ui/streamlit_app.py", default_timeout=20).run()
                 self.assertEqual(len(app.exception), 0)
                 self.assertEqual(next(w for w in app.selectbox if w.label == "Encoder backend").value, "torchreid")
-                for preset, encoder, quality in (
-                    ("colorhist", "colorhist", .55),
-                    ("no_quality_thresholds", "torchreid", 0.0),
+                for preset, encoder, quality, update_similarity in (
+                    ("colorhist", "colorhist", .55, .82),
+                    ("no_quality_thresholds", "torchreid", 0.0, .82),
+                    ("no_update_similarity", "torchreid", .55, -1.0),
                 ):
                     next(w for w in app.selectbox if w.label == "ReID preset").select(preset).run()
                     self.assertEqual(len(app.exception), 0)
                     self.assertEqual(next(w for w in app.selectbox if w.label == "Encoder backend").value, encoder)
                     self.assertEqual(keyed_widget(app, "pipeline_min_embedding_quality").value, quality)
+                    self.assertEqual(keyed_widget(app, "pipeline_min_update_similarity").value, update_similarity)
                 labels = [w.label for w in app.checkbox] + [w.label for w in app.selectbox]
                 self.assertFalse(any("motion" in label.lower() or "football" in label.lower() for label in labels))
                 self.assertEqual(len(list(paths.mode_dir.glob("*.json"))), 0)

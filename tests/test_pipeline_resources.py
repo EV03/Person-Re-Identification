@@ -53,6 +53,9 @@ class FakeWriter:
 
 
 class FakeStore:
+    def finish_analysis_run(self, *_args, **_kwargs) -> None:
+        return None
+
     def add_analysis_run(self, **_kwargs) -> None:
         return None
 
@@ -88,6 +91,7 @@ class PipelineResourceTests(unittest.TestCase):
         )
         pipeline.paths.ensure()
         pipeline.store = FakeStore()
+        pipeline.profiles = pipeline.store
         pipeline.tracker = tracker
         pipeline._open_capture = lambda _source: capture
         return pipeline
