@@ -46,6 +46,9 @@ class PipelineResult:
     processed_frames: int
     created_persons: int
     matched_events: int
+    output_video_codec: str | None = None
+    strong_match_events: int = 0
+    pending_weak_match_events: int = 0
     persons: list[PersonRecord] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     run_id: str | None = None

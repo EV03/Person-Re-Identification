@@ -52,8 +52,10 @@ def _build_config(args: argparse.Namespace, *, calibration: bool = False) -> Pip
     config.weak_match_threshold = float(args.weak_match_threshold)
     config.new_person_max_score = float(args.new_person_max_score)
     config.new_person_min_evidence_events = int(args.new_person_min_evidence_events)
+    config.new_person_min_evidence_span_frames = int(args.new_person_min_evidence_span_frames)
     config.new_person_evidence_window_frames = int(args.new_person_evidence_window_frames)
     config.new_person_low_match_ratio = float(args.new_person_low_match_ratio)
+    config.new_person_overlap_threshold = float(args.new_person_overlap_threshold)
     config.motion_identity_bonus = float(args.motion_identity_bonus)
     config.motion_identity_max_frame_gap = int(args.motion_identity_max_frame_gap)
     config.motion_identity_max_distance_fraction = float(args.motion_identity_max_distance_fraction)
@@ -202,6 +204,8 @@ def _run_one_video(
             "processed_frames": result.processed_frames,
             "created_persons": result.created_persons,
             "matched_events": result.matched_events,
+            "strong_match_events": result.strong_match_events,
+            "pending_weak_match_events": result.pending_weak_match_events,
             "warnings": result.warnings,
             "output_video_path": str(result.output_video_path) if result.output_video_path else None,
         },
@@ -264,8 +268,10 @@ def command_run(args: argparse.Namespace) -> None:
             "weak_match_threshold": config.weak_match_threshold,
             "new_person_max_score": config.new_person_max_score,
             "new_person_min_evidence_events": config.new_person_min_evidence_events,
+            "new_person_min_evidence_span_frames": config.new_person_min_evidence_span_frames,
             "new_person_evidence_window_frames": config.new_person_evidence_window_frames,
             "new_person_low_match_ratio": config.new_person_low_match_ratio,
+            "new_person_overlap_threshold": config.new_person_overlap_threshold,
             "detection_confidence": config.detection_confidence,
             "image_size": config.image_size,
             "min_embedding_quality": config.min_embedding_quality,
@@ -455,8 +461,10 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--weak-match-threshold", type=float, default=0.68)
     run_parser.add_argument("--new-person-max-score", type=float, default=0.58)
     run_parser.add_argument("--new-person-min-evidence-events", type=int, default=6)
+    run_parser.add_argument("--new-person-min-evidence-span-frames", type=int, default=15)
     run_parser.add_argument("--new-person-evidence-window-frames", type=int, default=30)
     run_parser.add_argument("--new-person-low-match-ratio", type=float, default=0.80)
+    run_parser.add_argument("--new-person-overlap-threshold", type=float, default=0.65)
     run_parser.add_argument("--motion-identity-bonus", type=float, default=0.04)
     run_parser.add_argument("--motion-identity-max-frame-gap", type=int, default=15)
     run_parser.add_argument("--motion-identity-max-distance-fraction", type=float, default=0.15)

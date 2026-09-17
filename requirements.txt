@@ -1,9 +1,17 @@
-ultralytics
-opencv-python
-numpy
-pandas
-streamlit
-python-dotenv
-qdrant-client
-# Optional but recommended for the max accuracy mode:
-# pip install git+https://github.com/KaiyangZhou/deep-person-reid.git
+# Kompatibilitätsdatei für manuelle pip-Installationen.
+# Der reproduzierbare und unterstützte Installationsweg ist scripts/setup_windows.ps1
+# mit pyproject.toml + uv.lock.
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+numpy==2.2.6
+opencv-python==4.13.0.92
+imageio-ffmpeg==0.6.0
+lap==0.5.13
+pandas==2.3.3
+python-dotenv==1.2.2
+qdrant-client==1.18.0
+streamlit==1.57.0
+torch==2.11.0
+torchvision==0.26.0
+torchreid @ git+https://github.com/KaiyangZhou/deep-person-reid.git@f8cd150fdf77e8d9e1ed143b7f308c2c609ded50
+ultralytics==8.4.50

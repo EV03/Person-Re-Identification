@@ -20,6 +20,9 @@ yolov8n.pt
 
 # Python
 .venv/
+.python/
+.uv-cache/
+.runtime/
 venv/
 env/
 __pycache__/
@@ -91,6 +94,7 @@ storage/
 # Logs
 *.log
 logs/
+data/smoke_test/
 
 # Keep folder placeholders
 !.gitkeep

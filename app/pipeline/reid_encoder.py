@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 import cv2
 import numpy as np
 
 from app.utils.image_utils import normalize_vector
+from app.utils.model_discovery import find_osnet_model
 
 
 class ReIdEncoder(ABC):
@@ -16,50 +18,24 @@ class ReIdEncoder(ABC):
         """Return a normalized embedding for one person crop in BGR format."""
 
 
-class ColorHistogramEncoder(ReIdEncoder):
-    """Very small demo encoder based on HSV color histograms.
-
-    This is intentionally simple and fast. It is useful for proving the complete
-    pipeline without installing heavy ReID dependencies. It is not robust enough
-    for production-grade person re-identification.
-    """
-
-    def __init__(self, bins_h: int = 16, bins_s: int = 8, bins_v: int = 8) -> None:
-        self.bins_h = bins_h
-        self.bins_s = bins_s
-        self.bins_v = bins_v
-        self.embedding_dim = bins_h + bins_s + bins_v
-
-    def encode(self, crop_bgr: np.ndarray) -> np.ndarray:
-        resized = cv2.resize(crop_bgr, (128, 256), interpolation=cv2.INTER_AREA)
-        hsv = cv2.cvtColor(resized, cv2.COLOR_BGR2HSV)
-
-        hist_h = cv2.calcHist([hsv], [0], None, [self.bins_h], [0, 180]).flatten()
-        hist_s = cv2.calcHist([hsv], [1], None, [self.bins_s], [0, 256]).flatten()
-        hist_v = cv2.calcHist([hsv], [2], None, [self.bins_v], [0, 256]).flatten()
-
-        vector = np.concatenate([hist_h, hist_s, hist_v]).astype(np.float32)
-        return normalize_vector(vector)
-
-
 class TorchreidOSNetEncoder(ReIdEncoder):
-    """Optional OSNet encoder via torchreid.
+    """OSNet encoder via the project's required Torchreid dependency."""
 
-    Install optional dependencies first:
-        pip install -r requirements-optional-reid.txt
+    _EMBEDDING_DIMENSIONS = {
+        "osnet_x1_0": 512,
+        "osnet_ibn_x1_0": 512,
+        "osnet_ain_x1_0": 512,
+        "osnet_x0_75": 384,
+        "osnet_x0_5": 256,
+        "osnet_x0_25": 128,
+    }
 
-    If torchreid cannot load pretrained weights in your environment, install
-    from the official repository:
-        pip install git+https://github.com/KaiyangZhou/deep-person-reid.git
-    """
-
-    def __init__(self, device: str = "cpu", model_name: str = "osnet_x1_0") -> None:
+    def __init__(self, device: str = "cpu", model_name: str = "osnet_x1_0", model_path: str = "") -> None:
         try:
             from torchreid.utils import FeatureExtractor
-        except Exception as exc:  # pragma: no cover - optional dependency
+        except Exception as exc:
             raise RuntimeError(
-                "Torchreid backend requested, but torchreid is not installed. "
-                "Install requirements-optional-reid.txt first."
+                "Torchreid/OSNet ist nicht installiert. Führe scripts/setup_windows.ps1 aus."
             ) from exc
 
         if device == "auto":
@@ -70,8 +46,24 @@ class TorchreidOSNetEncoder(ReIdEncoder):
             except Exception:
                 device = "cpu"
 
-        self.extractor = FeatureExtractor(model_name=model_name, model_path="", device=device)
-        self.embedding_dim = 512
+        resolved_model_path = Path(model_path).expanduser().resolve() if model_path else None
+        if resolved_model_path is None or not resolved_model_path.is_file():
+            discovered = find_osnet_model(model_name)
+            resolved_model_path = discovered.path if discovered is not None else None
+        if resolved_model_path is None or not resolved_model_path.is_file():
+            raise RuntimeError(
+                f"Kein lokales Gewicht für '{model_name}' gefunden. "
+                "Installiere es mit scripts/install_models_windows.ps1."
+            )
+
+        self.model_name = model_name
+        self.model_path = resolved_model_path
+        self.extractor = FeatureExtractor(
+            model_name=model_name,
+            model_path=str(resolved_model_path),
+            device=device,
+        )
+        self.embedding_dim = self._EMBEDDING_DIMENSIONS.get(model_name, 512)
 
     def encode(self, crop_bgr: np.ndarray) -> np.ndarray:
         crop_rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)
@@ -83,10 +75,5 @@ class TorchreidOSNetEncoder(ReIdEncoder):
         return normalize_vector(vector)
 
 
-def build_encoder(backend: str, device: str = "auto") -> ReIdEncoder:
-    backend = backend.lower().strip()
-    if backend == "colorhist":
-        return ColorHistogramEncoder()
-    if backend == "torchreid":
-        return TorchreidOSNetEncoder(device=device)
-    raise ValueError(f"Unknown encoder backend: {backend}")
+def build_encoder(model_name: str, model_path: str = "", device: str = "auto") -> ReIdEncoder:
+    return TorchreidOSNetEncoder(device=device, model_name=model_name, model_path=model_path)

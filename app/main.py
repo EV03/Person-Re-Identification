@@ -16,8 +16,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source", required=True, help="Video path or webcam index, e.g. 0")
     parser.add_argument("--mode", default="default", choices=available_modes, help="Selectable pipeline mode")
     parser.add_argument("--model", default=None, help="Ultralytics model name/path. Overrides selected mode default.")
+    parser.add_argument("--reid-model", default=None, help="Installed OSNet model name, e.g. osnet_x1_0")
+    parser.add_argument("--reid-model-path", default=None, help="Path to a local OSNet checkpoint")
     parser.add_argument("--tracker", default=None, help="Tracker config: bytetrack.yaml or botsort.yaml")
-    parser.add_argument("--encoder", default=None, choices=["colorhist", "torchreid"], help="ReID encoder backend")
     parser.add_argument("--store", default=None, choices=["sqlite", "qdrant"], help="Vector store backend")
     parser.add_argument("--qdrant-url", default=None, help="Qdrant URL, e.g. http://localhost:6333")
     parser.add_argument("--qdrant-collection", default=None, help="Qdrant collection name")
@@ -47,8 +48,10 @@ def main() -> None:
         overrides["yolo_model"] = args.model
     if args.tracker is not None:
         overrides["tracker"] = args.tracker
-    if args.encoder is not None:
-        overrides["encoder_backend"] = args.encoder
+    if args.reid_model is not None:
+        overrides["reid_model_name"] = args.reid_model
+    if args.reid_model_path is not None:
+        overrides["reid_model_path"] = args.reid_model_path
     if args.store is not None:
         overrides["vector_store_backend"] = args.store
     if args.qdrant_url is not None:
@@ -90,7 +93,9 @@ def main() -> None:
     print(f"Output video: {result.output_video_path}")
     print(f"Processed frames: {result.processed_frames}")
     print(f"Created persons: {result.created_persons}")
-    print(f"Matched events: {result.matched_events}")
+    print(f"ReID assignments: {result.matched_events}")
+    print(f"Strong ReID matches: {result.strong_match_events}")
+    print(f"Pending weak matches: {result.pending_weak_match_events}")
     if result.warnings:
         print("Warnings:")
         for warning in result.warnings:

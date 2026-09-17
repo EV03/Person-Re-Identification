@@ -1,0 +1,27 @@
+% Hauptdatei des Projekt-Exposes
+% Aufbau und Gestaltung orientieren sich an der HSRM-LaTeX-Vorlage von
+% https://gitlab.cs.hs-rm.de/jklam001/abschlussarbeit-latex-template
+
+\input{preamble/header.tex}
+
+\begin{document}
+
+\pagestyle{plain}
+\pagenumbering{Roman}
+\input{preamble/titelseite.tex}
+
+\tableofcontents
+\clearpage
+
+\pagenumbering{arabic}
+\pagestyle{scrheadings}
+\onehalfspacing
+
+\input{chapters/projektexpose.tex}
+
+\clearpage
+\pagestyle{plain}
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

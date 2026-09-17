@@ -2,7 +2,57 @@
 name = "person-reid-mvp"
 version = "0.1.0"
 description = "Local Person Re-Identification MVP with Streamlit, YOLO tracking and SQLite vector search"
-requires-python = ">=3.10"
+requires-python = "==3.10.8"
+dependencies = [
+    "numpy==2.2.6",
+    "opencv-python==4.13.0.92",
+    "imageio-ffmpeg==0.6.0",
+    "lap==0.5.13",
+    "pandas==2.3.3",
+    "python-dotenv==1.2.2",
+    "qdrant-client==1.18.0",
+    "streamlit==1.57.0",
+    "torch==2.11.0",
+    "torchreid",
+    "torchvision==0.26.0",
+    "ultralytics==8.4.50",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+torchreid = { git = "https://github.com/KaiyangZhou/deep-person-reid.git", rev = "f8cd150fdf77e8d9e1ed143b7f308c2c609ded50" }
+
+[tool.uv]
+package = false
+
+[tool.uv.extra-build-dependencies]
+torchreid = [
+    "Cython",
+    "Pillow",
+    "chardet",
+    "flake8",
+    "future",
+    "gdown",
+    "h5py",
+    "imageio",
+    "isort==4.3.21",
+    "matplotlib",
+    "numpy",
+    "opencv-python",
+    "scipy",
+    "six",
+    "tb-nightly",
+    "torch",
+    "torchvision",
+    "yacs",
+    "yapf",
+]
 
 [tool.ruff]
 line-length = 120

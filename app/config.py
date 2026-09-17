@@ -10,6 +10,9 @@ load_dotenv()
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_RUNTIME_DIR = PROJECT_ROOT / ".runtime"
+PROJECT_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("YOLO_CONFIG_DIR", str(PROJECT_RUNTIME_DIR))
 
 
 def _path_from_env(name: str, default: str) -> Path:
@@ -48,7 +51,8 @@ class PipelineConfig:
 
     yolo_model: str = os.getenv("REID_DEFAULT_MODEL", "yolov8n.pt")
     tracker: str = os.getenv("REID_DEFAULT_TRACKER", "bytetrack.yaml")
-    encoder_backend: str = os.getenv("REID_DEFAULT_ENCODER", "torchreid")
+    reid_model_name: str = os.getenv("REID_DEFAULT_REID_MODEL", "osnet_x1_0")
+    reid_model_path: str = os.getenv("REID_DEFAULT_REID_MODEL_PATH", "")
     vector_store_backend: str = os.getenv("REID_VECTOR_STORE_BACKEND", "sqlite")
     qdrant_url: str = os.getenv("QDRANT_URL", "http://localhost:6333")
     qdrant_api_key: str = os.getenv("QDRANT_API_KEY", "")
@@ -65,8 +69,10 @@ class PipelineConfig:
     weak_match_threshold: float = float(os.getenv("REID_WEAK_MATCH_THRESHOLD", "0.68"))
     new_person_max_score: float = float(os.getenv("REID_NEW_PERSON_MAX_SCORE", "0.58"))
     new_person_min_evidence_events: int = int(os.getenv("REID_NEW_PERSON_MIN_EVIDENCE_EVENTS", "6"))
+    new_person_min_evidence_span_frames: int = int(os.getenv("REID_NEW_PERSON_MIN_EVIDENCE_SPAN_FRAMES", "15"))
     new_person_evidence_window_frames: int = int(os.getenv("REID_NEW_PERSON_EVIDENCE_WINDOW_FRAMES", "30"))
     new_person_low_match_ratio: float = float(os.getenv("REID_NEW_PERSON_LOW_MATCH_RATIO", "0.80"))
+    new_person_overlap_threshold: float = float(os.getenv("REID_NEW_PERSON_OVERLAP_THRESHOLD", "0.65"))
     pending_max_age_frames: int = int(os.getenv("REID_PENDING_MAX_AGE_FRAMES", "45"))
     motion_identity_bonus: float = float(os.getenv("REID_MOTION_IDENTITY_BONUS", "0.04"))
     motion_identity_max_frame_gap: int = int(os.getenv("REID_MOTION_IDENTITY_MAX_FRAME_GAP", "15"))
@@ -84,6 +90,9 @@ class PipelineConfig:
     min_crop_height: int = 80
     min_crop_width: int = 30
     crop_padding: float = 0.05
+    calibration_mode: str = "off"
+    calibration_target_person_id: str = ""
+    calibration_label: str = ""
     device: str = "auto"
     draw_debug: bool = True
     live_preview_every_n_frames: int = 10

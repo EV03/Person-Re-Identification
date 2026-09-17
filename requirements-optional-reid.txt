@@ -1,4 +1,0 @@
-# Torchreid/OSNet backend. If PyPI package resolution fails, use the GitHub install below.
-torchreid
-# Alternative:
-# git+https://github.com/KaiyangZhou/deep-person-reid.git

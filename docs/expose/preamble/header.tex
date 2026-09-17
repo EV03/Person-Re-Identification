@@ -1,0 +1,99 @@
+% Dokumentkopf in Anlehnung an die HSRM-Abschlussarbeitsvorlage
+
+\documentclass[
+  ngerman,
+  12pt,
+  a4paper,
+  oneside,
+  headings=normal
+]{scrartcl}
+
+\usepackage[ngerman]{babel}
+\usepackage{fontspec}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{ragged2e}
+\usepackage{setspace}
+\usepackage{csquotes}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{scrlayer-scrpage}
+
+\definecolor{hsrmblue}{HTML}{005B82}
+\definecolor{hsrmlight}{HTML}{EAF2F5}
+\definecolor{hsrmgray}{HTML}{4B5563}
+\definecolor{statusgreen}{HTML}{EAF6EF}
+\definecolor{statusyellow}{HTML}{FFF7DC}
+
+% Allgemeine Daten. Die eckig markierten Angaben sind vor Abgabe zu ersetzen.
+\newcommand{\dokumenttyp}{Projekt-Expos\'e}
+\newcommand{\titel}{Lokale Personen-Re-Identifikation als Kontextschicht f\"ur komplexe Innenraum- und IoT-Anwendungen}
+\newcommand{\untertitel}{Konzeption, prototypische Umsetzung und Evaluation einer modularen Computer-Vision-Pipeline}
+\newcommand{\autor}{[Name erg\"anzen]}
+\newcommand{\matrikelnummer}{[Matrikelnummer erg\"anzen]}
+\newcommand{\fachbereich}{Design Informatik Medien}
+\newcommand{\studiengang}{[Studiengang erg\"anzen]}
+\newcommand{\betreuung}{[Betreuung erg\"anzen]}
+\newcommand{\abgabedatum}{25. August 2026}
+\newcommand{\keywords}{Person Re-Identification, Computer Vision, Tracking, OSNet, YOLO, IoT, Privacy by Design}
+
+\usepackage[
+  colorlinks=true,
+  linkcolor=hsrmblue,
+  urlcolor=hsrmblue,
+  citecolor=hsrmblue,
+  bookmarksnumbered=true,
+  pdftitle={\titel},
+  pdfauthor={\autor},
+  pdfkeywords={\keywords}
+]{hyperref}
+
+\KOMAoptions{parskip=half,headsepline=true}
+\setlength{\parindent}{0pt}
+\setlength{\textwidth}{150mm}
+\setlength{\oddsidemargin}{10mm}
+\setlength{\topmargin}{-4mm}
+\setlength{\textheight}{235mm}
+\setlength{\headheight}{18pt}
+\setlength{\emergencystretch}{3em}
+
+\clearpairofpagestyles
+\ihead{\dokumenttyp}
+\ohead{Person Re-Identification}
+\cfoot{\pagemark}
+
+\setcounter{tocdepth}{2}
+\setcounter{secnumdepth}{2}
+
+\newcommand{\code}[1]{\mbox{\texttt{#1}}}
+\newcommand{\file}[1]{\mbox{\textsf{#1}}}
+\newcommand{\statusdone}[1]{\colorbox{statusgreen}{\strut\small #1}}
+\newcommand{\statusplan}[1]{\colorbox{statusyellow}{\strut\small #1}}
+
+\newcolumntype{Y}{>{\RaggedRight\arraybackslash}X}
+\newcolumntype{L}[1]{>{\RaggedRight\arraybackslash}p{#1}}
+
+\tikzset{
+  stage/.style={
+    draw=hsrmblue,
+    rounded corners=2pt,
+    fill=hsrmlight,
+    minimum width=30mm,
+    minimum height=11mm,
+    align=center,
+    font=\small
+  },
+  flow/.style={-{Latex[length=2.2mm]}, thick, draw=hsrmblue}
+}
+
+\hypersetup{linktoc=all}

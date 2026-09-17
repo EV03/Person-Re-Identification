@@ -26,6 +26,7 @@ from app.utils.camera_utils import (
 )
 from app.utils.detail_utils import registry_groups_payload
 from app.utils.id_utils import ensure_unique_path
+from app.utils.model_discovery import LocalModel, discover_osnet_models, discover_yolo_models
 
 
 @st.cache_data(ttl=20, show_spinner=False)
@@ -55,6 +56,15 @@ def option_index(options: list[str], value: str, fallback: int = 0) -> int:
         return options.index(value)
     except ValueError:
         return fallback
+
+
+def local_model_index(models: list[LocalModel], configured: str, fallback: int = 0) -> int:
+    configured_text = str(configured or "").strip().lower()
+    configured_filename = Path(configured_text).name
+    for index, model in enumerate(models):
+        if model.name.lower() == configured_text or model.path.name.lower() == configured_filename:
+            return index
+    return fallback
 
 
 def apply_polished_theme() -> None:
@@ -198,7 +208,12 @@ def render_evaluation_runner(paths: AppPaths) -> None:
                 st.error(f"Testlauf konnte nicht gestartet werden: {exc}")
 
 
-def render_create_mode_form(paths: AppPaths, modes: dict[str, ModeConfig]) -> None:
+def render_create_mode_form(
+    paths: AppPaths,
+    modes: dict[str, ModeConfig],
+    yolo_models: list[LocalModel],
+    osnet_models: list[LocalModel],
+) -> None:
     with st.expander("Create custom mode preset"):
         st.caption(
             "Ein Custom Mode speichert nur Konfiguration und Feature-Flags. "
@@ -226,16 +241,24 @@ def render_create_mode_form(paths: AppPaths, modes: dict[str, ModeConfig]) -> No
 
             col_a, col_b = st.columns(2)
             with col_a:
-                custom_yolo_model = st.text_input("YOLO model default", value=base_mode.yolo_model)
+                custom_yolo_model = st.selectbox(
+                    "YOLO model default",
+                    options=yolo_models,
+                    index=local_model_index(yolo_models, base_mode.yolo_model) if yolo_models else None,
+                    format_func=lambda model: model.display_name,
+                    disabled=not yolo_models,
+                )
                 custom_tracker = st.selectbox(
                     "Tracker default",
                     options=["bytetrack.yaml", "botsort.yaml"],
                     index=option_index(["bytetrack.yaml", "botsort.yaml"], base_mode.tracker),
                 )
-                custom_encoder = st.selectbox(
-                    "Encoder default",
-                    options=["colorhist", "torchreid"],
-                    index=option_index(["colorhist", "torchreid"], base_mode.encoder_backend),
+                custom_osnet_model = st.selectbox(
+                    "OSNet ReID model default",
+                    options=osnet_models,
+                    index=local_model_index(osnet_models, base_mode.reid_model_name) if osnet_models else None,
+                    format_func=lambda model: model.display_name,
+                    disabled=not osnet_models,
                 )
                 custom_vector_store_backend = st.selectbox(
                     "Vector store default",
@@ -297,7 +320,7 @@ def render_create_mode_form(paths: AppPaths, modes: dict[str, ModeConfig]) -> No
                     value=base_mode.enable_stats_aggregation,
                 )
 
-            submitted = st.form_submit_button("Save custom mode")
+            submitted = st.form_submit_button("Save custom mode", disabled=not yolo_models or not osnet_models)
 
         if submitted:
             try:
@@ -307,9 +330,10 @@ def render_create_mode_form(paths: AppPaths, modes: dict[str, ModeConfig]) -> No
                     name=custom_name.strip() or custom_mode_id,
                     description=custom_description.strip(),
                     pipeline_type=custom_pipeline_type,
-                    yolo_model=custom_yolo_model,
+                    yolo_model=str(custom_yolo_model.path),
                     tracker=custom_tracker,
-                    encoder_backend=custom_encoder,
+                    reid_model_name=custom_osnet_model.name,
+                    reid_model_path=str(custom_osnet_model.path),
                     vector_store_backend=custom_vector_store_backend,
                     qdrant_url=base_mode.qdrant_url,
                     qdrant_api_key=base_mode.qdrant_api_key,
@@ -359,6 +383,8 @@ apply_polished_theme()
 
 paths = AppPaths()
 paths.ensure()
+local_yolo_models = discover_yolo_models()
+local_osnet_models = discover_osnet_models()
 
 st.title("Local Person Re-Identification MVP")
 st.caption("Lokales Demo-Setup mit auswählbaren Modi, YOLO Tracking, ReID Embeddings und SQLite/Qdrant Vector Store")
@@ -376,7 +402,7 @@ with st.sidebar:
     st.markdown(
         f"""<div class='mode-card'><b>{selected_mode.name}</b><br>
         <span class='small-note'>{selected_mode.description}</span><br>
-        <span class='small-note'>Pipeline: {selected_mode.pipeline_type} · Tracker: {selected_mode.tracker} · Encoder: {selected_mode.encoder_backend}</span></div>""",
+        <span class='small-note'>Pipeline: {selected_mode.pipeline_type} · Tracker: {selected_mode.tracker} · ReID: {selected_mode.reid_model_name}</span></div>""",
         unsafe_allow_html=True,
     )
 
@@ -386,23 +412,49 @@ with st.sidebar:
             "Balltracking, Teamklassifikation, Pitch Mapping und Statistiken sind vorbereitet, aber noch nicht vollständig verdrahtet."
         )
 
-    render_create_mode_form(paths, modes)
+    render_create_mode_form(paths, modes, local_yolo_models, local_osnet_models)
 
     st.divider()
     st.header("Pipeline Settings")
 
     input_type = st.radio("Input type", ["Video upload", "Local webcam"], index=0)
-    yolo_model = st.text_input("YOLO model", value=selected_mode.yolo_model)
+    if local_yolo_models:
+        selected_yolo_model = st.selectbox(
+            "Local YOLO detection model",
+            options=local_yolo_models,
+            index=local_model_index(local_yolo_models, selected_mode.yolo_model),
+            format_func=lambda model: model.display_name,
+            help="Erkannt werden Modelle im Projektroot, unter models/yolo und in REID_YOLO_MODEL_DIR.",
+        )
+        yolo_model = str(selected_yolo_model.path)
+    else:
+        selected_yolo_model = None
+        yolo_model = ""
+        st.error("Kein lokales YOLO-Modell gefunden. Verwende scripts/install_models_windows.ps1.")
+
+    if local_osnet_models:
+        selected_osnet_model = st.selectbox(
+            "Local OSNet ReID model",
+            options=local_osnet_models,
+            index=local_model_index(local_osnet_models, selected_mode.reid_model_name),
+            format_func=lambda model: model.display_name,
+            help="Erkannt werden Modelle unter models/reid, im Torch-Cache und in REID_OSNET_MODEL_DIR.",
+        )
+        reid_model_name = selected_osnet_model.name
+        reid_model_path = str(selected_osnet_model.path)
+    else:
+        selected_osnet_model = None
+        reid_model_name = selected_mode.reid_model_name
+        reid_model_path = ""
+        st.error("Kein lokales OSNet-Modell gefunden. Verwende scripts/install_models_windows.ps1.")
+
+    models_ready = selected_yolo_model is not None and selected_osnet_model is not None
     tracker = st.selectbox(
         "Tracker",
         ["bytetrack.yaml", "botsort.yaml"],
         index=option_index(["bytetrack.yaml", "botsort.yaml"], selected_mode.tracker),
     )
-    encoder_backend = st.selectbox(
-        "Encoder backend",
-        ["colorhist", "torchreid"],
-        index=option_index(["colorhist", "torchreid"], selected_mode.encoder_backend),
-    )
+    st.caption("ReID backend: Torchreid/OSNet (verbindlicher Standard)")
     vector_store_backend = st.selectbox(
         "Vector store",
         ["sqlite", "qdrant"],
@@ -581,6 +633,14 @@ with st.sidebar:
             value=int(selected_mode.new_person_min_evidence_events),
             step=1,
         )
+        new_person_min_evidence_span_frames = st.number_input(
+            "New person minimum visible frames",
+            min_value=1,
+            max_value=300,
+            value=int(selected_mode.new_person_min_evidence_span_frames),
+            step=1,
+            help="Eine neue Identität muss über diesen zeitlichen Frame-Bereich sichtbar sein.",
+        )
         new_person_evidence_window_frames = st.number_input(
             "New person evidence window frames",
             min_value=5,
@@ -594,6 +654,17 @@ with st.sidebar:
             max_value=1.00,
             value=float(selected_mode.new_person_low_match_ratio),
             step=0.05,
+        )
+        new_person_overlap_threshold = st.slider(
+            "Overlapping-detection protection",
+            min_value=0.30,
+            max_value=0.95,
+            value=float(selected_mode.new_person_overlap_threshold),
+            step=0.05,
+            help=(
+                "Bei stark überlappenden Boxen wird noch keine zweite Person angelegt. "
+                "Das schützt vor doppelten YOLO-Tracks derselben Person."
+            ),
         )
 
     detection_confidence = st.slider(
@@ -851,14 +922,15 @@ with col_run:
         f"Run {selected_mode.name}",
         type="primary",
         width="stretch",
-        disabled=source is None,
+        disabled=source is None or not models_ready,
     )
 
 with col_db:
     metric_config = selected_mode.to_pipeline_config(
         yolo_model=yolo_model,
         tracker=tracker,
-        encoder_backend=encoder_backend,
+        reid_model_name=reid_model_name,
+        reid_model_path=reid_model_path,
         vector_store_backend=vector_store_backend,
         qdrant_url=qdrant_url,
         qdrant_api_key=selected_mode.qdrant_api_key,
@@ -883,7 +955,8 @@ if run_clicked and source is not None:
     config = selected_mode.to_pipeline_config(
         yolo_model=yolo_model,
         tracker=tracker,
-        encoder_backend=encoder_backend,
+        reid_model_name=reid_model_name,
+        reid_model_path=reid_model_path,
         vector_store_backend=vector_store_backend,
         qdrant_url=qdrant_url,
         qdrant_api_key=selected_mode.qdrant_api_key,
@@ -896,8 +969,10 @@ if run_clicked and source is not None:
         weak_match_threshold=float(weak_match_threshold),
         new_person_max_score=float(new_person_max_score),
         new_person_min_evidence_events=int(new_person_min_evidence_events),
+        new_person_min_evidence_span_frames=int(new_person_min_evidence_span_frames),
         new_person_evidence_window_frames=int(new_person_evidence_window_frames),
         new_person_low_match_ratio=float(new_person_low_match_ratio),
+        new_person_overlap_threshold=float(new_person_overlap_threshold),
         detection_confidence=float(detection_confidence),
         image_size=int(image_size),
         reid_every_n_frames=int(reid_every_n_frames),
@@ -972,21 +1047,41 @@ if run_clicked and source is not None:
     with left:
         if result.output_video_path and result.output_video_path.exists():
             st.subheader("Annotated output video")
-            st.video(str(result.output_video_path))
+            st.video(str(result.output_video_path), format="video/mp4")
+            output_size_mb = result.output_video_path.stat().st_size / (1024 * 1024)
+            st.caption(
+                f"Gespeichert unter {result.output_video_path} · "
+                f"{output_size_mb:.1f} MB · Codec: {result.output_video_codec or 'unbekannt'}"
+            )
+            st.download_button(
+                "Download annotated video",
+                data=result.output_video_path.read_bytes(),
+                file_name=result.output_video_path.name,
+                mime="video/mp4",
+                width="stretch",
+            )
 
     with right:
         st.subheader("Run summary")
         st.metric("Mode", result.mode_id)
         st.metric("Created persons in this run", result.created_persons)
-        st.metric("Matched events in this run", result.matched_events)
+        st.caption(
+            "0 bedeutet: Es wurde kein neues Profil angelegt. Das kann bei bestehenden starken Matches "
+            "oder bei noch unsicheren Pending-Matches korrekt sein."
+        )
+        st.metric("Strong ReID matches", result.strong_match_events)
+        st.metric("Pending weak matches", result.pending_weak_match_events)
         st.metric("Total known persons", len(result.persons))
+        if result.run_id:
+            st.caption(f"Run-ID: {result.run_id}")
 
 st.divider()
 
 table_config = selected_mode.to_pipeline_config(
     yolo_model=yolo_model,
     tracker=tracker,
-    encoder_backend=encoder_backend,
+    reid_model_name=reid_model_name,
+    reid_model_path=reid_model_path,
     vector_store_backend=vector_store_backend,
     qdrant_url=qdrant_url,
     qdrant_api_key=selected_mode.qdrant_api_key,
@@ -1009,7 +1104,10 @@ except Exception as exc:
     runs_df = pd.DataFrame()
 
 with st.expander("Analysis runs", expanded=True):
-    st.caption("Gespeicherte Verarbeitungsläufe. Quelle, FPS, Frame-Anzahl und Modus helfen, spätere Ergebnisse nachzuvollziehen.")
+    st.caption(
+        "Normale UI-Läufe werden in data/output, data/snapshots und data/db gespeichert. "
+        "data/evaluation_runs ist ausschließlich für das separate Batch-Evaluationsskript."
+    )
     help_md("Analysis runs", "Jede Zeile entspricht einem Video- oder Webcam-Lauf. run_id verbindet den Lauf mit Events, Personenupdates und Output-Videos.")
     if runs_df.empty:
         st.info("No analysis runs stored yet.")

@@ -22,7 +22,7 @@ def build_football_mode() -> ModeConfig:
         pipeline_type="football_analysis",
         yolo_model="yolov8n.pt",
         tracker="botsort.yaml",
-        encoder_backend="torchreid",
+        reid_model_name="osnet_x1_0",
         vector_store_backend="sqlite",
         qdrant_collection="person_reid_embeddings",
         match_threshold=0.84,

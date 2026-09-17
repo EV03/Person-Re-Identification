@@ -18,7 +18,7 @@ def build_max_accuracy_mode() -> ModeConfig:
         pipeline_type="person_reid",
         yolo_model=os.getenv("REID_MAX_YOLO_MODEL", "yolov8x.pt"),
         tracker="botsort.yaml",
-        encoder_backend="torchreid",
+        reid_model_name=os.getenv("REID_MAX_REID_MODEL", "osnet_x1_0"),
         vector_store_backend="qdrant",
         qdrant_url=os.getenv("QDRANT_URL", "http://localhost:6333"),
         qdrant_api_key=os.getenv("QDRANT_API_KEY", ""),

@@ -1,0 +1,525 @@
+\section{Projektgegenstand und Kurzfassung}
+
+Das Projekt entwickelt ein lokal betreibbares System zur
+\emph{Personen-Re-Identifikation} (Person Re-Identification, ReID). Es erkennt
+Personen in Videos oder einem lokalen Kamerabild, verfolgt sie innerhalb der
+Aufnahme und ordnet erneute Sichtungen einer synthetischen Personen-ID zu. Das
+System beantwortet damit nicht die Frage nach einem Klarnamen, sondern die
+technische Frage: \enquote{Handelt es sich mit hinreichender Evidenz um dieselbe
+bereits beobachtete Person?}
+
+Der aktuelle Prototyp verbindet YOLO-basierte Personendetektion, ByteTrack oder
+BoT-SORT für Multi-Object-Tracking, Torchreid/OSNet für visuelle Embeddings,
+eine mehrstufige Matching-Logik sowie SQLite oder Qdrant zur lokalen
+Vektorsuche. Streamlit dient als Bedien- und Diagnoseoberfläche. Die Pipeline
+speichert neben einem gemittelten Personenprofil auch einzelne hochwertige
+Referenz-Embeddings und nutzt diese später erneut. Unsichere Beobachtungen
+führen nicht unmittelbar zu einer endgültigen Identitätsentscheidung.
+
+Langfristig soll die ReID-Pipeline eine lokale Kontextschicht für komplexere
+Anwendungen bilden: etwa personenabhängige, aber datensparsame
+Gebäudeautomation, kamerübergreifende Anwesenheitsmodelle, unterstützende
+Sicherheits- und Assistenzfunktionen oder Sportanalytik. Eine direkte
+IoT-Steuerung ist im heutigen Projektstand noch nicht implementiert. Das Exposé
+trennt deshalb konsequent zwischen vorhandenem System, Forschungsarbeit und
+Anwendungsperspektive.
+
+\subsection{Leitfragen}
+
+Die weitere Arbeit orientiert sich an vier Leitfragen:
+
+\begin{enumerate}[label=\textbf{F\arabic*:},leftmargin=18mm]
+  \item Wie lässt sich eine Person in Innenraumvideos lokal und ohne Klarnamen
+    über zeitlich getrennte Sichtungen möglichst stabil wiedererkennen?
+  \item Wie stark reduzieren Qualitätsfilter, Mehrbild-Puffer und eine
+    dreistufige Evidenzentscheidung falsche Zusammenführungen und
+    ID-Fragmentierung gegenüber einer einzelnen Schwellenwertentscheidung?
+  \item Welche Kombination aus Detektor, Tracker, ReID-Modell und Vektorspeicher
+    bietet für die Zielhardware den besten Kompromiss aus Genauigkeit,
+    Nachvollziehbarkeit und Laufzeit?
+  \item Wie muss eine Ereignisschnittstelle gestaltet sein, damit IoT-Systeme
+    nur zweckgebundene, pseudonyme und mit Unsicherheit versehene Signale
+    erhalten?
+\end{enumerate}
+
+
+\section{Ausgangslage, Motivation und Relevanz}
+
+\subsection{Vom Erkennen einer Person zum Verstehen einer Situation}
+
+Eine reine Objekterkennung kann feststellen, dass sich eine Person im Bild
+befindet. Für komplexere Anwendungen reicht dies nicht aus. Soll ein System
+zwischen wiederkehrenden Bewohnern, Gästen und einer unbekannten Person
+unterscheiden, muss es Beobachtungen über Zeit zusammenführen. Tracking hält
+eine temporäre ID innerhalb einer zusammenhängenden Sequenz; ReID soll dieselbe
+Person nach Verdeckung, Wiedereintritt, einem Neustart oder später auch an einer
+anderen Kamera wiederfinden. Diese Trennung ist ein zentrales
+Architekturprinzip.
+
+Im Wohn- und Gebäudeumfeld entsteht daraus ein möglicher Mehrwert: Licht,
+Medien, Raumklima oder Assistenzfunktionen könnten auf wiederkehrende,
+pseudonyme Kontexte reagieren. Ein IoT-System müsste dann nicht das Videobild
+erhalten, sondern nur ein minimiertes Ereignis wie
+\code{person\_000004 entered living\_room} einschließlich Zeitstempel,
+Konfidenz und Quelle. MQTT bietet hierfür perspektivisch ein standardisiertes
+Publish/Subscribe-Protokoll \citep{oasis2019mqtt}. Die Freigabe einer Aktion
+darf jedoch nicht allein aus einem unsicheren KI-Match folgen; kritische
+Aktionen benötigen zusätzliche Regeln oder eine zweite Bestätigung.
+
+\subsection{Warum das Problem anspruchsvoll ist}
+
+ReID muss mit ähnlicher Kleidung, wechselnden Outfits, Lichtänderungen,
+Bewegungsunschärfe, Verdeckung, kleinen Bildausschnitten und veränderten
+Perspektiven umgehen. Im Haus kommen enge Räume, Türdurchgänge, wechselnde
+Kameraabstände und gleichzeitige Personen hinzu. OSNet adressiert die visuelle
+Wiedererkennung durch eine leichtgewichtige, mehrskalige Merkmalsrepräsentation
+\citep{zhou2019osnet}; dennoch liefert auch ein leistungsfähiger Encoder nur
+Ähnlichkeiten und keine sichere Identität.
+
+Die gesellschaftliche Relevanz ist ambivalent: Dieselbe Technik kann nützliche
+Assistenz und lokale Automatisierung ermöglichen, zugleich aber Bewegungs- und
+Verhaltensprofile erzeugen. Nach der Datenschutz-Grundverordnung können
+biometrische Daten besondere Kategorien personenbezogener Daten darstellen,
+wenn sie mittels spezieller technischer Verarbeitung zur eindeutigen
+Identifizierung genutzt werden \citep{eu2016gdpr}. Auch der AI Act fasst
+biometrische Identifikation funktional als Vergleich mit Referenzdaten
+\citep{eu2024aiact}. Das Projekt benötigt deshalb eine dokumentierte
+Rechtsgrundlage, Zweckbindung, Datenminimierung, Löschfristen und
+Zugriffskontrolle, bevor es außerhalb kontrollierter Tests eingesetzt wird.
+
+
+\section{Zielsetzung und Abgrenzung}
+
+\subsection{Projektziele}
+
+Das Vorhaben soll eine reproduzierbare und evaluierbare Baseline schaffen, die:
+
+\begin{itemize}[leftmargin=7mm]
+  \item Video- und lokale Kameraquellen verarbeitet,
+  \item Personen detektiert und mit temporären Track-IDs verfolgt,
+  \item aus ausreichend guten Personenausschnitten normalisierte
+    ReID-Embeddings erzeugt,
+  \item bekannte und potenziell neue Personen über mehrere Evidenzstufen
+    unterscheidet,
+  \item Profile kontrolliert aus hochwertigen Beobachtungen erweitert,
+  \item Entscheidungen, Scores, Qualitätswerte und Alternativkandidaten
+    nachvollziehbar protokolliert,
+  \item SQLite und Qdrant hinter einer austauschbaren Store-Schnittstelle
+    unterstützt und
+  \item reproduzierbare Evaluationen für Tracking und ReID ermöglicht.
+\end{itemize}
+
+\subsection{Nicht-Ziele des aktuellen MVPs}
+
+Das System stellt keine behördliche Identifizierung, Zugangskontrolle oder
+Garantie einer Identität bereit. Es speichert standardmäßig keine Klarnamen und
+verwendet weder Gesichts-, Stimm-, Emotions- noch Gangbilderkennung. Eine
+produktive Multi-Kamera-Architektur, Browser-Remote-Kameras und die Steuerung
+realer IoT-Geräte sind noch nicht umgesetzt. Ebenso sind Balltracking,
+Spielfeldabbildung und vollständige Fußballstatistiken vorbereitete
+Erweiterungspunkte, nicht Teil der stabilen ReID-Baseline.
+
+
+\section{Systemaufbau}
+
+\subsection{Datenfluss}
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}
+    \node[stage] (input) at (0,0) {Video /\\Kamera};
+    \node[stage] (detect) at (3.8,0) {YOLO\\Personendetektion};
+    \node[stage] (track) at (7.6,0) {ByteTrack /\\BoT-SORT};
+    \node[stage] (crop) at (11.4,0) {Person-Crop\\und Qualit\"at};
+    \node[stage] (embed) at (11.4,-1.8) {OSNet-\\Embedding};
+    \node[stage] (match) at (7.6,-1.8) {Top-K-Matching\\und Evidenz};
+    \node[stage] (store) at (3.8,-1.8) {SQLite / Qdrant\\Profile + Events};
+    \node[stage] (output) at (0,-1.8) {Live-Preview /\\Ergebnisvideo};
+
+    \draw[flow] (input) -- (detect);
+    \draw[flow] (detect) -- (track);
+    \draw[flow] (track) -- (crop);
+    \draw[flow] (crop) -- (embed);
+    \draw[flow] (embed) -- (match);
+    \draw[flow] (match) -- (store);
+    \draw[flow] (store) -- (output);
+  \end{tikzpicture}
+  \caption{Datenfluss der implementierten ReID-Pipeline}
+  \label{fig:architecture}
+\end{figure}
+
+Die Orchestrierung liegt in einer zentralen Pipeline-Klasse. Der Detektor und
+Tracker liefern pro Frame Bounding Box, Confidence und Track-ID. Nach dem Crop
+berechnet OSNet einen normalisierten Vektor. Die Suche vergleicht diesen mit
+gespeicherten Mittelwerten und einzelnen Referenz-Samples. Der Store führt
+Profile und protokolliert Ereignisse; Streamlit zeigt Parameter, Live-Bild,
+Ergebnisse und Diagnosedaten.
+
+\subsection{Modulare Projektstruktur}
+
+\begin{table}[H]
+  \centering
+  \caption{Zentrale Module des Repositorys}
+  \label{tab:modules}
+  \begin{tabularx}{\textwidth}{L{36mm}Y}
+    \toprule
+    \textbf{Bereich} & \textbf{Verantwortung} \\
+    \midrule
+    \file{app/ui} & Streamlit-Oberfläche, Modus- und Parameterwahl, Kamera- und Ergebnisansicht \\
+    \file{app/pipeline} & Detection, Tracking, ReID-Encoding, Matching und Orchestrierung \\
+    \file{app/storage} & Gemeinsames Datenmodell sowie SQLite- und Qdrant-Implementierung \\
+    \file{app/modes} & Default-, Max-Accuracy-, Football- und benutzerdefinierte Konfigurationen \\
+    \file{app/evaluation} & Manifest, Event-Logging, Datenbank-Snapshots und Metriken \\
+    \file{app/utils} & Crop-Qualität, Detailmerkmale, Bewegung, Kamera- und Modellverwaltung \\
+    \file{scripts} & Installation, Start, Smoke-Test, Modellverwaltung und Evaluation \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Die Modusabstraktion erlaubt unterschiedliche Genauigkeits- und
+Anwendungsprofile, ohne die Kernpipeline zu duplizieren. Der
+\code{default}-Modus verwendet derzeit YOLOv8n, ByteTrack, OSNet und SQLite.
+Der ressourcenintensivere Modus kombiniert YOLOv8x, BoT-SORT und Qdrant. Der
+Fußballmodus erbt bewusst die stabile ReID-Pipeline und stellt Erweiterungspunkte
+für Teamfarbe, Ball, Homographie und Statistik bereit.
+
+
+\section{Implementierte Technologien}
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Technologiestack und Aufgabe im System}
+  \label{tab:tech}
+  \begin{tabularx}{\textwidth}{L{31mm}L{39mm}Y}
+    \toprule
+    \textbf{Ebene} & \textbf{Technologie} & \textbf{Aufgabe und Status} \\
+    \midrule
+    Laufzeit & Python 3.10.8, uv, uv.lock & Projektgebundene, reproduzierbar gesperrte Windows-Umgebung \\
+    Video & OpenCV & Kamera-Scan, VideoCapture, Cropping, Qualitätsmaße und Ergebnisvideo \\
+    Detection & Ultralytics YOLOv8 & Personklasse aus COCO-Modellen, lokale Modellgewichte, GPU/CPU \\
+    Tracking & ByteTrack / BoT-SORT & Temporäre Objekt-IDs innerhalb einer Sequenz; beide Tracker sind konfigurierbar \citep{zhang2022bytetrack,aharon2022botsort} \\
+    ReID & Torchreid / OSNet & Normalisierte visuelle Embeddings; OSNet-Varianten mit modellabhängiger Dimension \citep{zhou2019osnet} \\
+    Kontext & OpenCV-Heuristiken, Motion & Weiche Attribute, Crop-Qualität, Bewegung und räumliche Plausibilität \\
+    Speicherung & SQLite / Qdrant & Lokale Profile, Einzel-Samples, Ereignisse und Top-K-Vektorsuche; Qdrant ist optional für skalierbare Ähnlichkeitssuche \citep{qdrant2026vectors} \\
+    Oberfläche & Streamlit, pandas & Lokale Parametrierung, Live-Preview und tabellarische Diagnose \\
+    Hardware & PyTorch, CUDA 12.8 & Getesteter GPU-Pfad auf NVIDIA RTX 4070 sowie CPU-Fallback \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Ultralytics kapselt Detektion und Tracking über eine gemeinsame API. Die
+Projektimplementierung ruft den Tracker frameweise mit persistentem Zustand
+auf und filtert auf die Personenklasse. ByteTrack assoziiert auch schwächere
+Detektionen in einer zweiten Stufe und kann dadurch kurz verdeckte Tracks
+erhalten \citep{zhang2022bytetrack}. BoT-SORT ergänzt unter anderem
+Kamerabewegungskompensation und optionale Appearance-Information
+\citep{aharon2022botsort}. Die Tracker-ID bleibt dennoch eine lokale
+Sequenzkennung; die globale synthetische Personen-ID entsteht erst in der
+eigenen ReID-Schicht.
+
+
+\section{Methodische Prinzipien}
+
+\subsection{Das Siebprinzip der Personenwiedererkennung}
+
+Die zentrale Projektidee ist ein kaskadiertes Sieb: Jede Stufe verwirft
+ungeeignete Daten oder reduziert die Sicherheit einer Entscheidung. Erst wenn
+mehrere Prüfungen bestanden sind, darf eine Beobachtung ein Profil anlegen oder
+verändern.
+
+\begin{enumerate}[label=\textbf{S\arabic*:},leftmargin=18mm,itemsep=4pt]
+  \item \textbf{Detektionssieb:} Nur YOLO-Detektionen der Klasse Person oberhalb
+    der eingestellten Confidence werden übernommen.
+  \item \textbf{Trackingsieb:} ByteTrack oder BoT-SORT verbindet passende Boxen
+    zeitlich und erzeugt eine temporäre Track-ID.
+  \item \textbf{Crop- und Qualitätssieb:} Zu kleine, unscharfe, schlecht
+    belichtete, ungünstig proportionierte oder am Rand abgeschnittene Crops
+    werden nicht für ReID verwendet.
+  \item \textbf{Mehrbildsieb:} Ein neuer Track benötigt mehrere gute Frames.
+    Aus ihnen wird ein kombiniertes Embedding erzeugt; der beste Crop dient als
+    Snapshot.
+  \item \textbf{Ähnlichkeitssieb:} Die normalisierten OSNet-Vektoren werden per
+    Kosinusähnlichkeit gegen Mittelwert und hochwertige Einzel-Samples gesucht.
+    Bereits im selben Frame verwendete Personen-IDs sind ausgeschlossen.
+  \item \textbf{Kontextsieb:} Detailmerkmale und räumliche Bewegung wirken nur
+    als kleine Re-Ranking- oder Plausibilitätssignale. Sie ersetzen OSNet nicht.
+  \item \textbf{Evidenzsieb:} Strong, Weak/Pending und Low unterscheiden sichere
+    Zuordnung, vorläufige Zuordnung und fehlende Evidenz. Eine neue Person wird
+    erst nach mehreren niedrigen Treffern in einem Zeitfenster angelegt.
+\end{enumerate}
+
+Dieses Vorgehen reduziert zwei typische Fehler: Ein schlechter Einzel-Crop soll
+weder ein bestehendes Profil verunreinigen noch vorschnell eine neue Person-ID
+erzeugen. Gleichzeitig verhindert der Same-Frame-Ausschluss, dass zwei
+gleichzeitig sichtbare Personen derselben synthetischen ID zugeordnet werden.
+
+\subsection{Dreistufige Entscheidung statt Ja/Nein}
+
+Für einen besten Match-Score $s$ gelten im Default-Modus beispielhaft drei
+Bereiche:
+
+\begin{equation}
+  \operatorname{Entscheidung}(s)=
+  \begin{cases}
+    \text{Strong Match und Profilwachstum}, & s \geq 0{,}82 \\
+    \text{Weak/Pending ohne Profilupdate}, & 0{,}68 \leq s < 0{,}82 \\
+    \text{Low Match; weitere Evidenz sammeln}, & s < 0{,}68.
+  \end{cases}
+\end{equation}
+
+Eine neue Person entsteht im Default-Modus erst, wenn mindestens sechs
+Evidenzereignisse in einem Fenster von 30 Frames vorliegen und mindestens
+80 Prozent davon höchstens den Score 0,58 erreichen. Die Werte sind
+Konfigurationsparameter und keine allgemein gültigen Grenzwerte; sie müssen auf
+einem festen Benchmark kalibriert werden.
+
+\subsection{Wiederverwendung gesammelter Daten}
+
+Das System lernt nicht durch unkontrolliertes Nachtrainieren des neuronalen
+Netzes. Stattdessen wächst die Referenzdatenbasis kontrolliert:
+
+\begin{itemize}[leftmargin=7mm]
+  \item Ein Profil besitzt ein qualitätsgewichtetes mittleres Embedding.
+  \item Zusätzlich werden einzelne hochwertige Embedding-Samples mit Quelle,
+    Frame, Track, Qualität und Zeitstempel gespeichert.
+  \item Neue Suchanfragen werden gegen beide Repräsentationen verglichen; pro
+    Person zählt der beste Referenztreffer.
+  \item Nur sichere Matches und ausreichend hochwertige Updates dürfen das
+    Profil erweitern. Pending-Matches bleiben zunächst schreibgeschützt.
+  \item Ein Kalibrierungsmodus kann ein neues Profil aus besonders guten
+    Beobachtungen aufbauen oder ein vorhandenes Profil gezielt erweitern.
+  \item Fixe Datenbank-Snapshots ermöglichen faire Vergleichstests; ein
+    wachsender Datenbankmodus bildet dagegen den praktischen Lernverlauf ab.
+\end{itemize}
+
+Diese Trennung bewahrt alte, möglicherweise später hilfreiche Perspektiven,
+macht Profilwachstum nachvollziehbar und vermeidet, dass ausschließlich ein
+Mittelwert die Vielfalt einer Person verdeckt. Künftig müssen redundante oder
+schlechte Samples begrenzt, versioniert und gezielt löschbar werden.
+
+\subsection{Erklärbarkeit durch Ereignisprotokolle}
+
+Pro ReID-Ereignis werden unter anderem Track-ID, Person-ID, Bounding Box,
+Qualität, finaler Score, visueller Score, Detailanteil, Entscheidungszone und
+Top-K-Kandidaten protokolliert. Dadurch lässt sich unterscheiden, ob ein Fehler
+aus instabilem Tracking, schlechter Bildqualität, einer knappen
+Ähnlichkeitsentscheidung oder einem problematischen Profilupdate entstand.
+
+
+\section{Verworfene, ersetzte und zurückgestellte Ansätze}
+
+{\small
+\begin{longtable}{L{31mm}L{27mm}L{76mm}}
+  \caption{Technologieentscheidungen mit Begründung}
+  \label{tab:decisions} \\
+  \toprule
+  \textbf{Ansatz} & \textbf{Entscheidung} & \textbf{Begründung} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Ansatz} & \textbf{Entscheidung} & \textbf{Begründung} \\
+  \midrule
+  \endhead
+  LLM für visuelle Erkennung & verworfen & Die Aufgabe benötigt Detection, zeitliche Datenassoziation und ReID-Embeddings, keine Sprachmodell-Inferenz. \\
+  32D-Farbhistogramm & ersetzt & Als Demo schnell, aber stark von Kleidung und Beleuchtung abhängig; durch OSNet ersetzt. Alte 32D- und neue 512D-Profile dürfen nicht gemischt werden. \\
+  Einzelner harter Threshold & ersetzt & Ein binäres Ja/Nein erzeugte vorschnell neue IDs und unkontrollierte Updates; ersetzt durch Strong/Weak/Low und zeitliche Evidenz. \\
+  Erster Crop eines Tracks & ersetzt & Häufig unscharf, klein oder abgeschnitten; ersetzt durch Quality Gate und Mehrbild-Puffer. \\
+  SAM/SAM3 als ReID-Modell & verworfen & Segmentierung erzeugt Masken, aber nicht die benötigte Personenrepräsentation. Segmentierung bleibt als möglicher Vorverarbeitungstest offen. \\
+  Qdrant als Pflichtdienst & nicht verworfen, optional & SQLite minimiert den MVP-Aufwand; Qdrant ist bereits als Local-, Memory- oder Server-Backend angebunden und für größere Datenmengen vorgesehen. \\
+  Gesichts-, Stimm-, Emotions- und Gangbilderkennung & zurückgestellt & Höhere Sensitivität, zusätzliche Modelle und eigene rechtliche sowie ethische Bewertung erforderlich. \\
+  WebRTC-Browserkamera & zurückgestellt & Aktuell greift OpenCV auf lokale Windows-Kameras zu; eine echte Remote-Browserkamera benötigt eine zusätzliche Architektur. \\
+  Linux und AMD/ROCm & derzeit nicht unterstützt & Die gepflegte Baseline zielt auf Windows, NVIDIA/CUDA und CPU-Fallback; Portierung erst nach stabiler Baseline. \\
+  \bottomrule
+\end{longtable}
+}
+
+Die Tabelle unterscheidet bewusst zwischen \emph{verworfen}, \emph{ersetzt}
+und \emph{zurückgestellt}. Beispielsweise ist Qdrant keine verworfene
+Technologie, sondern eine implementierte Alternative; SAM ist nicht als
+ReID-Kern geeignet, kann aber später bessere Vordergrund-Crops liefern.
+
+
+\section{Anwendungsszenario: Haus und IoT}
+
+\subsection{Zielbild}
+
+Im Zielbild betreibt jede Kamera einen klar abgegrenzten Erfassungsprozess. Die
+ReID-Schicht erzeugt aus Videodaten ein minimiertes Kontext-Ereignis. Eine
+separate Regel- und IoT-Schicht entscheidet anschließend, ob und welche Aktion
+zulässig ist.
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[node distance=7mm]
+    \node[stage] (cam) {Kamera};
+    \node[stage,right=of cam] (reid) {lokale ReID-\\Pipeline};
+    \node[stage,right=of reid] (event) {pseudonymes\\Kontext-Ereignis};
+    \node[stage,below=of event] (policy) {Policy Engine\\und Freigabe};
+    \node[stage,left=of policy] (mqtt) {MQTT / lokaler\\Ereignisbus};
+    \node[stage,left=of mqtt] (iot) {IoT-Aktor\\oder Assistenz};
+    \draw[flow] (cam) -- (reid);
+    \draw[flow] (reid) -- (event);
+    \draw[flow] (event) -- (policy);
+    \draw[flow] (policy) -- (mqtt);
+    \draw[flow] (mqtt) -- (iot);
+  \end{tikzpicture}
+  \caption{Vorgeschlagene Trennung zwischen Wahrnehmung, Entscheidung und Aktion}
+  \label{fig:iot}
+\end{figure}
+
+Mögliche, zunächst nicht sicherheitskritische Demonstratoren sind
+personenabhängige Lichtszenen, lokale Komfortprofile oder eine anonyme
+Belegungsstatistik. Ein Ereignis sollte mindestens
+\code{pseudonymous\_person\_id}, \code{zone\_id}, Zeitstempel, Konfidenz,
+Entscheidungszone, Kameraquelle und eine kurze Gültigkeitsdauer enthalten.
+Videoframes und Embeddings werden nicht an den IoT-Aktor weitergereicht.
+
+\subsection{Regeln für sichere Automatisierung}
+
+\begin{itemize}[leftmargin=7mm]
+  \item Wahrnehmung, Policy und Geräteaktion bleiben getrennte Komponenten.
+  \item Weak- oder Pending-Matches dürfen keine irreversible oder
+    sicherheitskritische Aktion auslösen.
+  \item Gleichzeitige Sichtbarkeit, Raumübergänge und zeitliche Plausibilität
+    werden vor einer Aktion geprüft.
+  \item Bewohner müssen Einblick, Korrektur- und Löschmöglichkeiten erhalten.
+  \item Fällt ReID aus, bleibt ein sicherer manueller oder nicht-personalisierter
+    Betriebsmodus verfügbar.
+\end{itemize}
+
+
+\section{Evaluation und erwartete Ergebnisse}
+
+\subsection{Versuchsdesign}
+
+Die vorhandene Evaluationsschicht verarbeitet manifestbasierte Videos. Eine
+Kalibrierungsaufnahme erzeugt einen reproduzierbaren Datenbankstand. Für
+\code{fixed\_db} startet jedes Testvideo mit derselben Kopie; für
+\code{learn\_through} wächst das Profil über die Reihenfolge der Videos. Ein
+adaptiver Kalibrierungsmodus erlaubt kontrolliertes Profilwachstum.
+
+Die Datensätze sollen systematisch variieren:
+
+\begin{itemize}[leftmargin=7mm]
+  \item Ansicht und Pose: vorne, seitlich, hinten, sitzend, gehend;
+  \item Erscheinung: Basis, Brille, anderes Oberteil und Kombinationen;
+  \item Aufnahme: Licht, Entfernung, Auflösung, Bewegung und Verdeckung;
+  \item Szene: Einzelperson, mehrere Personen, ähnliche Kleidung,
+    Wiedereintritt sowie später unterschiedliche Kameras.
+\end{itemize}
+
+\subsection{Metriken und Vergleiche}
+
+Bereits vorhanden sind unter anderem Anzahl und Dominanz von Track- und
+Personen-IDs, Track- und Person-Switches, Profilfragmentierung sowie Strong-,
+Weak- und Low-Ereignisse. Ergänzt werden sollen Precision, Recall, False Match
+Rate, False Non-Match Rate sowie etablierte Trackingmetriken wie IDF1 und HOTA.
+
+Verglichen werden mindestens:
+
+\begin{enumerate}[leftmargin=8mm]
+  \item ByteTrack gegen BoT-SORT unter identischen Bedingungen,
+  \item verschiedene YOLO- und OSNet-Größen,
+  \item feste Schwelle gegen das vollständige Siebprinzip,
+  \item SQLite gegen Qdrant hinsichtlich Ergebnisgleichheit und Laufzeit sowie
+  \item fixe gegen kontrolliert wachsende Referenzdaten.
+\end{enumerate}
+
+Die zentrale Hypothese lautet: Das mehrstufige Verfahren senkt insbesondere
+Profilfragmentierung und fehlerhafte Profilupdates, ohne die Rate korrekter
+Wiedererkennungen unvertretbar zu reduzieren.
+
+
+\section{Datenschutz, Sicherheit und Grenzen}
+
+Lokale Verarbeitung und synthetische IDs reduzieren Risiken, anonymisieren die
+Daten jedoch nicht automatisch. Ein ReID-Embedding ist gerade dafür bestimmt,
+Beobachtungen wieder zuzuordnen. Daher gelten folgende technische Leitplanken:
+
+\begin{itemize}[leftmargin=7mm]
+  \item Zweck und Rechtsgrundlage vor jeder Datenerhebung dokumentieren;
+  \item Rohvideos, Snapshots, Events und Embeddings getrennt behandeln und
+    jeweils eine Löschfrist definieren;
+  \item standardmäßig keine Klarnamen an synthetische IDs binden;
+  \item Zugriff, Export, Profil-Merge, Trennung und Löschung auditierbar machen;
+  \item Verschlüsselung und Rollenmodell vor Mehrbenutzerbetrieb ergänzen;
+  \item Unsicherheit sichtbar halten und Fehlentscheidungen korrigierbar machen;
+  \item sensible Zusatzsignale nur als separat freizugebende Module entwickeln.
+\end{itemize}
+
+Technisch bleibt OSNet bei starken Kleidungswechseln, Verdeckungen und großen
+Perspektivunterschieden begrenzt. Tracking-IDs können fragmentieren; ReID-Scores
+sind daten- und domänenabhängig. Die geplante IoT-Anbindung darf diese Grenzen
+nicht hinter einer scheinbar eindeutigen Personen-ID verstecken.
+
+
+\section{Arbeitsplan und Ausblick}
+
+\subsection{Arbeitspakete}
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Vorgeschlagener Arbeitsplan für die nächste Projektphase}
+  \label{tab:plan}
+  \begin{tabularx}{\textwidth}{L{18mm}L{25mm}Y}
+    \toprule
+    \textbf{Zeitraum} & \textbf{Arbeitspaket} & \textbf{Ergebnis} \\
+    \midrule
+    Woche 1--2 & Baseline und Governance & Fixierter Datenstand, Testprotokoll, Daten- und Löschkonzept \\
+    Woche 3--4 & Unit- und Integrationstests & Tests für Matching-Zonen, Quality Gate, Store-Vertrag und Same-Frame-Ausschluss \\
+    Woche 5--6 & Benchmark & ByteTrack/BoT-SORT, YOLO-/OSNet-Varianten und Parametervergleich \\
+    Woche 7--8 & Schwierige Szenen & Multi-Person, ähnliche Kleidung, Verdeckung, Wiedereintritt und unbekannte Personen \\
+    Woche 9--10 & Multi-Kamera/IoT-Prototyp & Kamera-Registry, Zeitfenster, minimiertes Ereignisschema und ungefährlicher MQTT-Demonstrator \\
+    Woche 11--12 & Auswertung & Fehleranalyse, Metriken, Grenzen, reproduzierbarer Ergebnisbericht und Dokumentation \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{Mögliche Entwicklungswege}
+
+Nach einer belastbaren Baseline verzweigt sich das Projekt in vier klar
+abgrenzbare Wege:
+
+\begin{description}[style=nextline,leftmargin=8mm]
+  \item[Weg A -- Smart Home und Assistenz]
+    Multi-Kamera-Zonenmodell, lokaler Ereignisbus, Policy Engine und
+    datensparsame IoT-Adapter. Dies ist der direkteste Weg zur im Projekt
+    motivierten Gebäudeanwendung.
+  \item[Weg B -- Genauigkeit und Skalierung]
+    Größere Detektoren, Tracker-Tuning, Cross-Camera-ReID, Qdrant-Indizes,
+    Profilverwaltung sowie systematisches Sample-Pruning.
+  \item[Weg C -- Sportanalyse]
+    Teamklassifikation, eigener Ball-/Spielerdetektor, Homographie,
+    Meterkoordinaten, Laufwege, Heatmaps und Ballnähe. Die Grundmodule sind
+    vorbereitet, aber noch nicht vollständig verdrahtet.
+  \item[Weg D -- optionale Sensorfusion]
+    Pose, RGB-D, UWB, mmWave oder Wi-Fi-CSI zunächst nur als unabhängige
+    Plausibilitätssignale mit eigener Quelle, Konfidenz und Freigabe. Gesicht,
+    Stimme, Gangbild und Emotion bleiben besonders sensible Forschungsoptionen.
+\end{description}
+
+\subsection{Aktueller Projektstand und erwarteter Beitrag}
+
+\begin{table}[H]
+  \centering
+  \caption{Abgrenzung von erreichtem Stand und nächster Arbeit}
+  \label{tab:status}
+  \begin{tabularx}{\textwidth}{L{27mm}Y}
+    \toprule
+    \textbf{Status} & \textbf{Inhalt} \\
+    \midrule
+    \statusdone{umgesetzt} & Lokales Windows-Setup, CPU/CUDA-Pfad, YOLO-Tracking, OSNet-ReID, SQLite/Qdrant, Live-UI, Qualitätsfilter, Mehrbild-Puffer, dreistufiges Matching, Profil-Samples, Detail- und Motion-Signale, Evaluationsgrundlage \\
+    \statusplan{zu validieren} & Reproduzierbare Multi-Person-Benchmarks, IDF1/HOTA, Threshold-Kalibrierung, Store-Vertragstests, Profilverwaltung und Datenlebenszyklus \\
+    \statusplan{geplant} & Multi-Kamera-Architektur, sicherer IoT-Ereignisadapter, Rollen/Rechte, Löschfristen, Football-Vollintegration und optionale Sensorfusion \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Der erwartete Beitrag ist nicht ein neues neuronales Grundmodell. Er liegt in
+der nachvollziehbaren Integration vorhandener Verfahren zu einer lokalen,
+konfigurierbaren und evaluierbaren ReID-Pipeline. Besonders relevant sind die
+Qualitätssicherung vor dem Speichern, die Wiederverwendung mehrerer guter
+Referenzen, die zeitliche Evidenz statt vorschneller Ja/Nein-Entscheidungen und
+die klare Trennung zwischen Wahrnehmung, Identitätsannahme und Geräteaktion.

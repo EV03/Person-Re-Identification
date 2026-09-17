@@ -6,6 +6,13 @@ from typing import Any
 from app.config import PipelineConfig
 
 
+_RUNTIME_CALIBRATION_FIELDS = {
+    "calibration_mode",
+    "calibration_target_person_id",
+    "calibration_label",
+}
+
+
 @dataclass(frozen=True)
 class ModeConfig:
     """Configuration preset for a selectable analysis mode.
@@ -22,7 +29,8 @@ class ModeConfig:
 
     yolo_model: str = "yolov8n.pt"
     tracker: str = "bytetrack.yaml"
-    encoder_backend: str = "torchreid"
+    reid_model_name: str = "osnet_x1_0"
+    reid_model_path: str = ""
     vector_store_backend: str = "sqlite"
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str = ""
@@ -35,8 +43,10 @@ class ModeConfig:
     weak_match_threshold: float = 0.68
     new_person_max_score: float = 0.58
     new_person_min_evidence_events: int = 6
+    new_person_min_evidence_span_frames: int = 15
     new_person_evidence_window_frames: int = 30
     new_person_low_match_ratio: float = 0.80
+    new_person_overlap_threshold: float = 0.65
     pending_max_age_frames: int = 45
     motion_identity_bonus: float = 0.04
     motion_identity_max_frame_gap: int = 15
@@ -89,11 +99,30 @@ class ModeConfig:
     is_custom: bool = False
 
     def to_pipeline_config(self, **overrides: Any) -> PipelineConfig:
-        values = asdict(self)
-        supported_fields = PipelineConfig.__dataclass_fields__.keys()
-        values = {key: value for key, value in values.items() if key in supported_fields}
+        """Build a mutable run configuration from this preset.
+
+        Streamlit can keep an imported dataclass constructor alive across a
+        source reload. Instantiating the config first and applying validated
+        values afterwards avoids a stale ``__init__`` signature while keeping
+        runtime-only calibration values explicit.
+        """
+
+        supported_fields = set(PipelineConfig.__dataclass_fields__)
+        unsupported_overrides = set(overrides) - supported_fields - _RUNTIME_CALIBRATION_FIELDS
+        if unsupported_overrides:
+            names = ", ".join(sorted(unsupported_overrides))
+            raise TypeError(f"Unsupported PipelineConfig override(s): {names}")
+
+        preset_values = asdict(self)
+        values = {key: value for key, value in preset_values.items() if key in supported_fields}
+        if "mode_name" in supported_fields:
+            values["mode_name"] = self.name
         values.update(overrides)
-        return PipelineConfig(**values)
+
+        config = PipelineConfig()
+        for key, value in values.items():
+            setattr(config, key, value)
+        return config
 
     def to_json_dict(self) -> dict[str, Any]:
         return asdict(self)

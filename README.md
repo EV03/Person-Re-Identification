@@ -3,21 +3,14 @@
 Dieses Repository ist ein kleines, lokal lauffähiges MVP für **Person Re-Identification**.
 Es nimmt ein Video oder optional eine lokale Webcam als Eingabe, erkennt Personen, verfolgt sie im Video, erstellt Embeddings aus den Person-Crops und speichert synthetische Personen-IDs in einer lokalen Datenbank.
 
----
+Der unterstützte Entwicklungsstand ist **Windows + projektgebundenes Python 3.10.8**. Torchreid/OSNet ist der verbindliche ReID-Encoder; der frühere Color-Histogram-Encoder wurde entfernt.
 
-starten mit
-python -m streamlit run app/ui/streamlit_app.py
+Windows-Schnellstart:
 
-prüfen ob mit in der virtuallen umgebung ist
-.\.venv\Scripts\Activate.ps1
-python -c "import sys; print(sys.executable)"
-
-reset wenn man auf colorhist gearbeitete hat
-python scripts/reset_db.py
-
-den colorhist arbeitet mit 32 dimenseionen
-
-torchreid / OSNet auf 512
+```powershell
+.\scripts\setup_windows.ps1
+.\scripts\start_windows.ps1
+```
 
 ## 1. Was dieses Setup macht
 
@@ -54,13 +47,16 @@ Dieses MVP nutzt standardmäßig:
 - **Streamlit** als kleines lokales Eingabe-Panel.
 - **Ultralytics YOLO** für Person Detection und Tracking.
 - **ByteTrack** oder **BoT-SORT** als Tracker.
-- **Color Histogram Encoder** als sofort lauffähigen, sehr kleinen Demo-ReID-Encoder.
+- **Torchreid / OSNet** als verbindlichen Person-ReID-Encoder.
 - **SQLite** als lokale Embedding- und Metadaten-Datenbank.
+- **uv + uv.lock** für eine reproduzierbare Python-3.10.8-Umgebung.
 
-Optional kann später ein echter Person-ReID-Encoder wie **Torchreid / OSNet** aktiviert werden. Der Code enthält dafür bereits einen Adapter.
+Die Oberfläche erkennt lokal installierte YOLO- und OSNet-Gewichte und zeigt dafür getrennte Auswahlfelder an.
 
 Relevante Dokumentationen:
 
+- uv Python/Umgebungen: https://docs.astral.sh/uv/guides/install-python/
+- PyTorch CUDA-/CPU-Versionen: https://pytorch.org/get-started/previous-versions/
 - Ultralytics Tracking: https://docs.ultralytics.com/modes/track/
 - Torchreid / OSNet: https://kaiyangzhou.github.io/deep-person-reid/
 - Streamlit File Upload: https://docs.streamlit.io/develop/api-reference/widgets/st.file_uploader
@@ -88,16 +84,27 @@ person-reid-mvp/
 │   └── utils/
 │       ├── camera_utils.py
 │       ├── id_utils.py
-│       └── image_utils.py
+│       ├── image_utils.py
+│       └── model_discovery.py
+├── models/
+│   ├── yolo/
+│   └── reid/
 ├── scripts/
+│   ├── setup_windows.ps1
+│   ├── start_windows.ps1
+│   ├── install_models_windows.ps1
+│   ├── smoke_test_windows.ps1
+│   ├── verify_environment.py
 │   └── reset_db.py
 ├── data/
 │   ├── input/
 │   ├── output/
 │   ├── snapshots/
 │   └── db/
+├── .python-version
+├── pyproject.toml
+├── uv.lock
 ├── requirements.txt
-├── requirements-optional-reid.txt
 ├── docker-compose.yml
 ├── .env.example
 └── README.md
@@ -200,13 +207,14 @@ Empfohlene nächste Implementierungsreihenfolge:
 
 ### 4.1 Voraussetzungen
 
-Empfohlen:
+Unterstützt und getestet:
 
-- Python 3.10 oder 3.11
-- Windows, macOS oder Linux
-- Optional: NVIDIA GPU mit CUDA, aber nicht erforderlich
+- Windows PowerShell
+- `uv` als Python-/Paketmanager
+- projektlokales CPython 3.10.8
+- NVIDIA RTX 4070 mit PyTorch 2.11.0 und CUDA 12.8
 
-Das MVP läuft auch auf CPU. Für Echtzeit-Video ist eine GPU sinnvoll, aber für erste Tests reicht CPU mit kleinen Videos.
+CPU-Ausführung bleibt über `Device = cpu` möglich, ist aber deutlich langsamer. Linux ist derzeit nicht unterstützt und besitzt keine gepflegten Setup-Skripte. AMD/ROCm ist architektonisch möglich, wurde aber weder implementiert noch getestet und gilt nicht als unterstützt.
 
 ---
 
@@ -219,47 +227,36 @@ cd person-reid-mvp
 
 ---
 
-### 4.3 Virtuelle Umgebung erstellen
+### 4.3 Projektumgebung installieren
 
 #### Windows PowerShell
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
+.\scripts\setup_windows.ps1
 ```
 
-Falls PowerShell das Aktivieren blockiert:
+Das Skript:
+
+- installiert CPython 3.10.8 unter `.python/`,
+- erstellt `.venv/` neu, falls sie fehlt oder inkompatibel ist,
+- synchronisiert exakt mit `uv.lock`,
+- installiert/übernimmt `yolov8n.pt` und `osnet_x1_0`,
+- prüft Kernimporte, CUDA, GPU und lokale Modelle.
+
+Eine defekte oder falsche Umgebung kann bewusst neu gebaut werden:
 
 ```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-.\.venv\Scripts\Activate.ps1
+.\scripts\setup_windows.ps1 -Rebuild
 ```
 
-#### macOS/Linux
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-```
-
----
-
-### 4.4 Dependencies installieren
-
-```bash
-pip install -r requirements.txt
-```
-
-Beim ersten Start lädt Ultralytics automatisch ein kleines YOLO-Modell herunter, z. B. `yolov8n.pt`. Das ist für den MVP normal.
+`requirements.txt` bleibt nur als Kompatibilitätsdatei bestehen. Der unterstützte Weg ist `pyproject.toml` zusammen mit `uv.lock` und dem Setup-Skript.
 
 ---
 
 ### 5.5 App starten
 
 ```bash
-streamlit run app/ui/streamlit_app.py
+.\scripts\start_windows.ps1
 ```
 
 Danach öffnet sich im Browser normalerweise:
@@ -300,7 +297,8 @@ Hinweis: Die lokale Webcam wird über OpenCV geöffnet. Das ist nicht dasselbe w
 
 | Parameter                     | Bedeutung                                                                           | Empfehlung für Start |
 | ----------------------------- | ----------------------------------------------------------------------------------- | -------------------- |
-| `YOLO model`                  | Detection-Modell                                                                    | `yolov8n.pt`         |
+| `Local YOLO detection model`  | Lokal erkanntes Detection-Modell                                                    | `yolov8n.pt`         |
+| `Local OSNet ReID model`      | Lokal erkanntes ReID-Modell                                                         | `osnet_x1_0`         |
 | `Tracker`                     | Tracking-Algorithmus                                                                | `bytetrack.yaml`     |
 | `Match threshold`             | Mindestähnlichkeit für Wiedererkennung                                              | `0.82`               |
 | `ReID every N frames`         | Wie oft Embeddings aktualisiert werden                                              | `10`                 |
@@ -325,6 +323,8 @@ data/snapshots/
 data/output/
 ```
 
+Normale UI- und CLI-Läufe verwenden diese drei Pfade. `data/evaluation_runs/` wird nur vom separaten Batch-Evaluationsskript befüllt.
+
 Gespeichert werden:
 
 - synthetische Person-ID
@@ -345,8 +345,12 @@ Nicht gespeichert werden:
 ## 8. Datenbank zurücksetzen
 
 ```bash
-python scripts/reset_db.py
+.\.venv\Scripts\python.exe scripts/reset_db.py --confirm
 ```
+
+Vor dem Reset wird automatisch eine konsistente Datenbank- und Snapshot-Sicherung unter
+`data/backups/reset_<timestamp>/` angelegt. Bereits erzeugte Videos in `data/output/` bleiben standardmäßig erhalten.
+Die App sollte während des Resets beendet sein.
 
 Das löscht:
 
@@ -356,25 +360,37 @@ Das löscht:
 
 ---
 
-## 9. Optional: Torchreid / OSNet aktivieren
+## 9. Lokale YOLO- und OSNet-Modelle
 
-Der Standard-Encoder `colorhist` ist nur ein schneller Demo-Encoder. Für echte Person-ReID ist ein spezialisiertes Modell wie OSNet sinnvoller.
+Torchreid/OSNet wird immer installiert und ist nicht mehr optional. Die reproduzierbare Version stammt aus einem festgeschriebenen Commit des offiziellen Torchreid-Repositories.
 
-Installiere optionale ReID-Abhängigkeiten:
+Installierte Modelle anzeigen:
 
-```bash
-pip install -r requirements-optional-reid.txt
+```powershell
+.\scripts\install_models_windows.ps1 -List
 ```
 
-Dann in der UI `Encoder backend` auf `torchreid` stellen.
+Weitere Modelle installieren:
 
-Falls die Installation von `torchreid` über pip nicht funktioniert, kann Torchreid auch direkt aus dem GitHub-Repository installiert werden:
-
-```bash
-pip install git+https://github.com/KaiyangZhou/deep-person-reid.git
+```powershell
+.\scripts\install_models_windows.ps1 `
+  -Yolo @("yolov8s.pt", "yolov8x.pt") `
+  -Osnet @("osnet_x0_75", "osnet_x0_5")
 ```
 
-Hinweis: Torch/PyTorch-Installationen hängen stark von Betriebssystem und CUDA-Version ab. Für einen stabilen GPU-Betrieb sollte PyTorch passend zur lokalen CUDA-Version installiert werden.
+Unterstützte automatische Downloads:
+
+- YOLO: `yolov8n.pt`, `yolov8s.pt`, `yolov8m.pt`, `yolov8l.pt`, `yolov8x.pt`
+- OSNet: `osnet_x1_0`, `osnet_x0_75`, `osnet_x0_5`, `osnet_x0_25`, `osnet_ibn_x1_0`
+
+Die UI erkennt Modelle aus:
+
+- Projektroot und `models/yolo/`
+- `models/reid/`
+- lokalem Torch-Checkpoint-Cache
+- optional `REID_YOLO_MODEL_DIR` und `REID_OSNET_MODEL_DIR`
+
+Unterschiedliche OSNet-Varianten erzeugen unterschiedliche Embedding-Dimensionen. Beim Modellwechsel sollte deshalb eine separate Datenbank bzw. Qdrant-Collection verwendet werden.
 
 ---
 
@@ -402,7 +418,7 @@ Der Qdrant-Adapter ist in diesem MVP bewusst noch nicht als Default aktiv, weil 
 
 Dieses Setup ist absichtlich klein und schnell startbar. Deshalb gibt es Grenzen:
 
-- Der Standard-Encoder basiert nur auf Farben/Histogrammen und ist nicht robust gegen Kleidungswechsel.
+- OSNet arbeitet primär mit visuellen Erscheinungsmerkmalen und bleibt bei Kleidungswechseln, starken Verdeckungen oder sehr unterschiedlichen Perspektiven begrenzt.
 - ReID über mehrere Tage, Kameras oder stark unterschiedliche Blickwinkel ist damit nur eingeschränkt zuverlässig.
 - YOLO erkennt Personen, aber keine Identität.
 - Tracking-IDs sind nur innerhalb eines laufenden Videos stabil.
@@ -420,9 +436,9 @@ Dieses Setup ist absichtlich klein und schnell startbar. Deshalb gibt es Grenzen
 - Doppelte IDs analysieren
 - UI für gespeicherte Personen ergänzen
 
-### Phase 2: Echten ReID-Encoder nutzen
+### Phase 2: ReID-Modelle vergleichen
 
-- Torchreid / OSNet aktivieren
+- OSNet-Varianten unter identischen Bedingungen vergleichen
 - Alternativ FastReID evaluieren
 - Embeddings normalisieren und versionieren
 - Qualitätsmetrik pro Person speichern
@@ -449,7 +465,7 @@ Dieses Setup ist absichtlich klein und schnell startbar. Deshalb gibt es Grenzen
 Die App erzeugt jetzt zwei verschiedene Visualisierungen:
 
 1. **Live annotated preview** während der laufenden Verarbeitung. Diese Ansicht zeigt das aktuelle Kamerabild oder Videoframe direkt in Streamlit. Darauf werden die erkannten Personen mit Bounding Box, Track-ID, synthetischer Person-ID, ReID-Match-Score und Detection-Confidence gezeichnet.
-2. **Annotated output video** nach Abschluss der Verarbeitung. Dieses Video wird unter `data/output/` gespeichert und kann im UI abgespielt werden.
+2. **Annotated output video** nach Abschluss der Verarbeitung. Dieses Video wird unter `data/output/` als browserkompatibles H.264-MP4 gespeichert, kann im UI abgespielt und zusätzlich heruntergeladen werden. Das projektlokal gesperrte `imageio-ffmpeg` stellt dafür den Encoder bereit; eine globale FFmpeg-Installation ist nicht erforderlich.
 
 Für Webcam-Tests ist wichtig, dass `Max frames` nicht zu niedrig gesetzt ist. Wenn du z. B. `Max frames = 500` nutzt, endet die Live-Erkennung nach 500 Frames automatisch.
 
@@ -467,7 +483,7 @@ Bei CPU-only kann die Live-Vorschau ruckeln. Dann helfen diese Einstellungen:
 ### `ModuleNotFoundError: No module named 'ultralytics'`
 
 ```bash
-pip install -r requirements.txt
+.\scripts\setup_windows.ps1 -Rebuild
 ```
 
 ### OpenCV kann Video nicht lesen
@@ -500,10 +516,14 @@ Probiere ein `.mp4` mit H.264-Encoding. Manche `.mov` oder `.mkv` Dateien sind j
 ## 15. Startbefehl kompakt
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-streamlit run app/ui/streamlit_app.py
+.\scripts\setup_windows.ps1
+.\scripts\start_windows.ps1
+```
+
+Vollständiger isolierter Smoke-Test:
+
+```powershell
+.\scripts\smoke_test_windows.ps1
 ```
 
 ---

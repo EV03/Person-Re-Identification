@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Callable
 
 import cv2
+import imageio_ffmpeg
 import numpy as np
 
 from app.config import AppPaths, PipelineConfig
@@ -28,6 +30,90 @@ from app.utils.image_utils import (
 ProgressCallback = Callable[[int, int | None, str], None]
 FrameCallback = Callable[[int, np.ndarray], None]
 EventCallback = Callable[[dict[str, object]], None]
+
+
+def intersection_over_smaller_box(
+    first: tuple[int, int, int, int],
+    second: tuple[int, int, int, int],
+) -> float:
+    """Return how much of the smaller box is covered by the intersection."""
+
+    first_x1, first_y1, first_x2, first_y2 = first
+    second_x1, second_y1, second_x2, second_y2 = second
+    intersection_width = max(0, min(first_x2, second_x2) - max(first_x1, second_x1))
+    intersection_height = max(0, min(first_y2, second_y2) - max(first_y1, second_y1))
+    intersection_area = intersection_width * intersection_height
+    first_area = max(0, first_x2 - first_x1) * max(0, first_y2 - first_y1)
+    second_area = max(0, second_x2 - second_x1) * max(0, second_y2 - second_y1)
+    smaller_area = min(first_area, second_area)
+    if smaller_area <= 0:
+        return 0.0
+    return float(intersection_area / smaller_area)
+
+
+def has_sufficient_new_person_evidence(
+    evidence: list[tuple[int, float]],
+    *,
+    max_score: float,
+    min_events: int,
+    min_span_frames: int,
+    low_match_ratio: float,
+) -> bool:
+    """Require both repeated low scores and enough elapsed frames for a new identity."""
+
+    if not evidence:
+        return False
+    low_count = sum(1 for _, score in evidence if score <= max_score)
+    low_ratio = float(low_count / len(evidence))
+    frame_span = int(evidence[-1][0]) - int(evidence[0][0]) + 1
+    return len(evidence) >= min_events and frame_span >= min_span_frames and low_ratio >= low_match_ratio
+
+
+class FfmpegOutputVideoWriter:
+    """Small VideoWriter-compatible adapter backed by the bundled FFmpeg binary."""
+
+    def __init__(self, output_path: Path, fps: float, frame_size: tuple[int, int]) -> None:
+        self._generator = imageio_ffmpeg.write_frames(
+            str(output_path),
+            frame_size,
+            pix_fmt_in="bgr24",
+            pix_fmt_out="yuv420p",
+            fps=fps,
+            quality=7,
+            codec="libx264",
+            macro_block_size=2,
+            ffmpeg_log_level="error",
+            output_params=["-movflags", "+faststart"],
+        )
+        self._generator.send(None)
+        self._is_open = True
+
+    def isOpened(self) -> bool:  # noqa: N802 - mirrors cv2.VideoWriter
+        return self._is_open
+
+    def write(self, frame: np.ndarray) -> None:
+        if not self._is_open:
+            raise RuntimeError("Cannot write to a closed output video.")
+        self._generator.send(np.ascontiguousarray(frame))
+
+    def release(self) -> None:
+        if self._is_open:
+            self._generator.close()
+            self._is_open = False
+
+
+def open_output_video_writer(
+    output_path: Path,
+    fps: float,
+    frame_size: tuple[int, int],
+) -> tuple[FfmpegOutputVideoWriter, str]:
+    """Open an MP4 writer, preferring browser-compatible H.264 output."""
+
+    try:
+        return FfmpegOutputVideoWriter(output_path, fps, frame_size), "h264"
+    except Exception as exc:
+        output_path.unlink(missing_ok=True)
+        raise RuntimeError(f"Could not create browser-compatible H.264 output video: {output_path}") from exc
 
 
 @dataclass
@@ -55,7 +141,11 @@ class PersonReIdPipeline:
             image_size=config.image_size,
             device=config.device,
         )
-        self.encoder = build_encoder(config.encoder_backend, device=config.device)
+        self.encoder = build_encoder(
+            model_name=config.reid_model_name,
+            model_path=config.reid_model_path,
+            device=config.device,
+        )
 
     def close(self) -> None:
         store_close = getattr(self.store, "close", None)
@@ -293,12 +383,7 @@ class PersonReIdPipeline:
         source_label = safe_source_name(self._source_to_label(source))
         mode_label = safe_source_name(self.config.mode_id)
         output_path = self.paths.output_dir / f"{mode_label}_{run_id}_{source_label}.mp4"
-        writer = cv2.VideoWriter(
-            str(output_path),
-            cv2.VideoWriter_fourcc(*"mp4v"),
-            fps,
-            (width, height),
-        )
+        writer, output_codec = open_output_video_writer(output_path, fps, (width, height))
 
         self.store.add_analysis_run(
             run_id=run_id,
@@ -313,7 +398,11 @@ class PersonReIdPipeline:
             metadata={
                 "yolo_model": self.config.yolo_model,
                 "tracker": self.config.tracker,
-                "encoder_backend": self.config.encoder_backend,
+                "reid_model_name": self.config.reid_model_name,
+                "reid_model_path": self.config.reid_model_path,
+                "embedding_dimension": self.encoder.embedding_dim,
+                "output_video_path": str(output_path),
+                "output_video_codec": output_codec,
                 "vector_store_backend": self.config.vector_store_backend,
                 "qdrant_url": self.config.qdrant_url if self.config.vector_store_backend == "qdrant" else None,
                 "qdrant_collection": self.config.qdrant_collection if self.config.vector_store_backend == "qdrant" else None,
@@ -378,13 +467,16 @@ class PersonReIdPipeline:
         )
         created_persons = 0
         matched_events = 0
+        strong_match_events = 0
+        pending_weak_match_events = 0
         frame_index = 0
         skipped_low_quality = 0
         waiting_for_good_frames = 0
+        overlap_suppressed_events = 0
         large_motion_jumps = 0
         detail_observations = 0
-        calibration_mode = str(getattr(self.config, "calibration_mode", "off") or "off")
-        calibration_target_person_id = str(getattr(self.config, "calibration_target_person_id", "") or "").strip()
+        calibration_mode = str(self.config.calibration_mode or "off")
+        calibration_target_person_id = str(self.config.calibration_target_person_id or "").strip()
         calibration_active_person_id = calibration_target_person_id if calibration_mode == "extend_person" and calibration_target_person_id else None
         warnings: list[str] = []
         mode_warning = self._mode_warning()
@@ -399,16 +491,19 @@ class PersonReIdPipeline:
             warnings.append("Internal direction analysis disabled because BoT-SORT is active.")
 
         while True:
+            if self.config.max_frames > 0 and frame_index >= self.config.max_frames:
+                break
+
             ok, frame = cap.read()
             if not ok:
                 break
 
             frame_index += 1
-            if self.config.max_frames > 0 and frame_index > self.config.max_frames:
-                break
+            source_frame = frame.copy()
 
-            detections = self.tracker.track_frame(frame)
+            detections = self.tracker.track_frame(source_frame)
             used_person_ids_this_frame: set[str] = set()
+            assigned_person_boxes_this_frame: list[tuple[str, tuple[int, int, int, int]]] = []
 
             for detection in detections:
                 person_id = track_to_person.get(detection.track_id)
@@ -461,7 +556,7 @@ class PersonReIdPipeline:
                 should_reid = person_id is None or frame_index % max(1, self.config.reid_every_n_frames) == 0
 
                 if should_reid:
-                    crop = crop_xyxy(frame, detection.bbox_xyxy, padding=self.config.crop_padding)
+                    crop = crop_xyxy(source_frame, detection.bbox_xyxy, padding=self.config.crop_padding)
                     if not is_valid_crop(crop, self.config.min_crop_width, self.config.min_crop_height):
                         skipped_low_quality += 1
                         emit_pipeline_event(
@@ -484,7 +579,7 @@ class PersonReIdPipeline:
                     quality_score, quality_details = crop_quality_score(
                         crop=crop,
                         bbox_xyxy=detection.bbox_xyxy,
-                        frame_shape=frame.shape,
+                            frame_shape=source_frame.shape,
                         detection_confidence=detection.confidence,
                         min_width=self.config.min_crop_width,
                         min_height=self.config.min_crop_height,
@@ -674,26 +769,38 @@ class PersonReIdPipeline:
                             person_id = match.person_id
                             score = match.score
                             matched_events += 1
+                            strong_match_events += 1
                             should_store_update = True
                             event_type = "matched_person"
                         elif match is not None and match.score >= self.config.weak_match_threshold:
                             person_id = match.person_id
                             score = match.score
                             matched_events += 1
+                            pending_weak_match_events += 1
                             should_store_update = False
                             event_type = "pending_weak_match"
                         else:
-                            evidence = track_low_match_evidence.setdefault(detection.track_id, [])
-                            evidence.append((int(frame_index), best_score))
-                            min_frame = int(frame_index) - int(self.config.new_person_evidence_window_frames)
-                            evidence[:] = [(idx, value) for idx, value in evidence if idx >= min_frame]
-                            low_count = sum(1 for _, value in evidence if value <= self.config.new_person_max_score)
-                            low_ratio = float(low_count / len(evidence)) if evidence else 0.0
-                            should_create_new = (
-                                len(evidence) >= self.config.new_person_min_evidence_events
-                                and low_ratio >= self.config.new_person_low_match_ratio
+                            overlaps_assigned_person = any(
+                                intersection_over_smaller_box(best_candidate.bbox_xyxy, assigned_box)
+                                >= self.config.new_person_overlap_threshold
+                                for _, assigned_box in assigned_person_boxes_this_frame
                             )
-                            event_type = "new_person" if should_create_new else "pending_new_person"
+                            if overlaps_assigned_person:
+                                overlap_suppressed_events += 1
+                                event_type = "pending_overlapping_detection"
+                            else:
+                                evidence = track_low_match_evidence.setdefault(detection.track_id, [])
+                                evidence.append((int(frame_index), best_score))
+                                min_frame = int(frame_index) - int(self.config.new_person_evidence_window_frames)
+                                evidence[:] = [(idx, value) for idx, value in evidence if idx >= min_frame]
+                                should_create_new = has_sufficient_new_person_evidence(
+                                    evidence,
+                                    max_score=self.config.new_person_max_score,
+                                    min_events=self.config.new_person_min_evidence_events,
+                                    min_span_frames=self.config.new_person_min_evidence_span_frames,
+                                    low_match_ratio=self.config.new_person_low_match_ratio,
+                                )
+                                event_type = "new_person" if should_create_new else "pending_new_person"
 
                         if should_create_new:
                             person_id = self.store.create_person_id()
@@ -828,6 +935,7 @@ class PersonReIdPipeline:
                 if person_id:
                     recent_person_positions[person_id] = (int(frame_index), self._bbox_center(detection.bbox_xyxy))
                     used_person_ids_this_frame.add(person_id)
+                    assigned_person_boxes_this_frame.append((person_id, detection.bbox_xyxy))
 
                 if self.config.draw_debug:
                     draw_detection(
@@ -869,6 +977,16 @@ class PersonReIdPipeline:
             warnings.append(
                 "Some tracks were not assigned immediately because the pipeline waited for enough good frames."
             )
+        if pending_weak_match_events > 0:
+            warnings.append(
+                f"Pending weak ReID assignments: {pending_weak_match_events}. "
+                "These assignments are shown for review but do not update stored person profiles."
+            )
+        if overlap_suppressed_events > 0:
+            warnings.append(
+                f"Delayed new-person evidence for {overlap_suppressed_events} strongly overlapping detections "
+                "to avoid duplicate identities from parallel tracker boxes."
+            )
         if large_motion_jumps > 0:
             warnings.append(
                 f"Motion analysis detected {large_motion_jumps} large track jumps. "
@@ -883,9 +1001,12 @@ class PersonReIdPipeline:
         persons = self.store.list_persons()
         return PipelineResult(
             output_video_path=output_path,
+            output_video_codec=output_codec,
             processed_frames=frame_index,
             created_persons=created_persons,
             matched_events=matched_events,
+            strong_match_events=strong_match_events,
+            pending_weak_match_events=pending_weak_match_events,
             persons=persons,
             warnings=warnings,
             run_id=run_id,
