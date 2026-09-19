@@ -1,7 +1,9 @@
-"""Optional identity-decision policy ported from ``Details_Tracking``.
+"""Preset-selectable identity-decision policy ported from ``Details_Tracking``.
 
 The default main pipeline intentionally keeps its original single-threshold
-decision.  Supplying :class:`DetailTrackingPolicy` enables explainable detail
+decision. Selecting ``details_tracking_v2`` builds this policy from the complete
+preset configuration. Supplying :class:`DetailTrackingPolicy` directly remains
+available for dependency injection in tests and extensions. The policy enables explainable detail
 re-ranking, three decision zones, delayed new-person creation and a small
 image-space continuity bonus.  Motion is supporting evidence, never a
 biometric identifier.
@@ -34,6 +36,13 @@ class DetailTrackingPolicy:
     motion_identity_bonus: float = .04
     motion_identity_max_frame_gap: int = 15
     motion_identity_max_distance_fraction: float = .15
+
+    @classmethod
+    def from_config(cls, config: object) -> "DetailTrackingPolicy":
+        return cls(**{
+            field: getattr(config, field)
+            for field in cls.__dataclass_fields__
+        })
 
     def __post_init__(self) -> None:
         for name in ("detail_weight", "detail_min_confidence", "new_person_low_match_ratio",

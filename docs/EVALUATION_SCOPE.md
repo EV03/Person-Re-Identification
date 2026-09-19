@@ -21,9 +21,12 @@ Die quantitative Evaluation wurde noch nicht durchgeführt.
 | `colorhist` | A1 | Nur der Encoder wird ersetzt |
 | `no_quality_thresholds` | A2 | Nur die beiden Annahmeschwellen werden null |
 | `no_update_similarity` | A3 | Nur der Update-Ähnlichkeitsschutz wird mit -1 deaktiviert |
+| `details_tracking` | D1 | Detail-Re-Ranking, Strong/Weak/Low-Zonen, Evidenz vor neuen IDs und begrenzter räumlicher Bonus |
 
 A2 behält Qualitätsgewichtung, Mindestgrößen, Initialpuffer und Snapshot-Auswahl.
-Alle vier Presets sind Ausgangskonfigurationen, keine final ausgewählten Pilotwerte.
+B0/A1/A2/A3 bleiben der vierteilige Kernvergleich; D1 ist eine getrennt
+ausgewiesene Erweiterungspipeline. Alle fünf Presets sind Ausgangskonfigurationen,
+keine final ausgewählten Pilotwerte.
 Sie enthalten zunächst dieselben sonstigen Parameter. CLI/UI-Overrides
 sind möglich und müssen als Konfigurationsänderung aufgezeichnet werden.
 
@@ -38,7 +41,7 @@ Tracker-YAML, Konstanten und Gewichte der Qualitätsheuristik bleiben unverände
 Diese Einstellbarkeit dient Pilotversuchen, nicht einer Nachkalibrierung auf Testclips.
 
 Die bisherige umfangreiche Bewegungsdiagnostik bleibt aus der normalen `main`-
-Policy entfernt. Die optionale `Details_Tracking`-Policy kann ausschließlich
+Policy entfernt. Die über das D1-Preset wählbare `Details_Tracking`-Policy kann ausschließlich
 einen kleinen, begrenzten Bildraum-Kontinuitätsbonus verwenden. Richtung,
 Pixelgeschwindigkeit und Sprungmetriken werden weiterhin nicht als eigene
 Identitätsmethode behauptet. Die interne Bewegungsschätzung des verwendeten
@@ -71,8 +74,8 @@ die bisherige `custom_modes.json` wird weder geladen noch überschrieben.
 - Preset-Namen werden korrekt in die Laufkonfiguration übernommen.
 
 Die normale `main`-Policy behält weiterhin ihre Personenkennung für bekannte
-Tracks. Für getrennt ausgewiesene Erweiterungsläufe steht nun optional die
-`Details_Tracking`-Policy mit Detail-Re-Ranking, drei Entscheidungszonen,
+Tracks. Für getrennt ausgewiesene Erweiterungsläufe steht nun das D1-Preset mit
+der `Details_Tracking`-Policy, Detail-Re-Ranking, drei Entscheidungszonen,
 verzögerter Neuanlage und kleinem räumlichen Bonus bereit. Profilupdates prüfen
 weiterhin die Ähnlichkeit zum Zielprofil; Weak-Matches aktualisieren das Profil
 nicht. A3 verändert nur den ursprünglichen Update-Schutz der `main`-Methode.

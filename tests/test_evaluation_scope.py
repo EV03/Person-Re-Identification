@@ -48,6 +48,10 @@ class EvaluationPresetTests(unittest.TestCase):
         self.assertEqual(modes["no_quality_thresholds"].min_embedding_quality, 0)
         self.assertEqual(modes["no_quality_thresholds"].min_update_quality, 0)
         self.assertEqual(modes["no_update_similarity"].min_update_similarity, -1)
+        details = asdict(modes["details_tracking"].to_pipeline_config())
+        changed = {key for key in base if base[key] != details[key]}
+        self.assertEqual(changed - {"mode_id", "mode_name"}, {"decision_policy"})
+        self.assertEqual(modes["details_tracking"].decision_policy, "details_tracking_v2")
 
     def test_custom_preset_round_trip_preserves_name_and_overrides(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
@@ -213,7 +217,7 @@ class ReIdPipelineScopeTests(unittest.TestCase):
                 _, store = self.run_pipeline([[known], order], False)
                 assignments = {o["track_id"]: o["person_id"] for o in store.observations}
                 self.assertNotEqual(assignments[1], assignments[2])
-                self.assertFalse(any("motion" in key for key in store.metadata))
+                self.assertEqual(store.metadata["decision_policy"], "main_single_threshold")
                 self.assertFalse(any("motion" in key for o in store.observations for key in o["payload"]))
 
 

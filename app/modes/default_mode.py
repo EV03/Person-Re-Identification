@@ -48,3 +48,17 @@ def build_no_update_similarity_mode() -> ModeConfig:
         description="B0 ohne Ähnlichkeitsprüfung vor Profilupdates; Qualitätsgrenzen und Updates bleiben erhalten.",
         min_update_similarity=-1.0,
     )
+
+
+def build_details_tracking_mode() -> ModeConfig:
+    """D1: OSNet plus the optional Details_Tracking decision policy."""
+    return replace(
+        build_default_mode(),
+        mode_id="details_tracking",
+        name="D1 - Details Tracking",
+        description=(
+            "OSNet plus Detail-Re-Ranking, Strong/Weak/Low-Zonen, verzögerte "
+            "Neuanlage und begrenzten räumlichen Kontinuitätsbonus."
+        ),
+        decision_policy="details_tracking_v2",
+    )

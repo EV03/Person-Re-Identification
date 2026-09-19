@@ -89,11 +89,12 @@ class DetailPersistenceAndReportTests(unittest.TestCase):
             writer = FakeWriter()
             pipeline = PersonReIdPipeline(
                 PipelineConfig(encoder_backend="colorhist", max_frames=0, draw_debug=False,
+                               decision_policy="details_tracking_v2",
                                min_crop_width=1, min_crop_height=1, crop_padding=0,
                                min_good_frames_before_reid=1, min_embedding_quality=0,
                                min_update_quality=0, reid_every_n_frames=1),
                 paths=paths, tracker=SequenceTracker([[detection], [detection]]),
-                encoder=RecordingEncoder(), detail_policy=DetailTrackingPolicy(),
+                encoder=RecordingEncoder(),
             )
             pipeline._open_capture = lambda _source: capture
             with patch("app.pipeline.orchestrator.cv2.VideoWriter", return_value=writer), patch(

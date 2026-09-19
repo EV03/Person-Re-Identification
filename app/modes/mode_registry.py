@@ -16,6 +16,7 @@ from app.modes.base_mode import ModeConfig
 from app.modes.default_mode import (
     build_colorhist_mode,
     build_default_mode,
+    build_details_tracking_mode,
     build_no_quality_thresholds_mode,
     build_no_update_similarity_mode,
 )
@@ -25,6 +26,7 @@ _BUILTIN_MODES = (
     build_colorhist_mode,
     build_no_quality_thresholds_mode,
     build_no_update_similarity_mode,
+    build_details_tracking_mode,
 )
 
 

@@ -23,7 +23,6 @@ from app.config import AppPaths, PipelineConfig
 from app.modes.base_mode import ModeConfig
 from app.modes.mode_registry import list_modes, normalize_mode_id, save_custom_mode
 from app.pipeline.orchestrator import PersonReIdPipeline
-from app.pipeline.detail_tracking import DetailTrackingPolicy
 from app.storage.vector_store import SQLiteVectorStore
 from app.storage.encoder_paths import paths_for_encoder
 from app.evaluation.runner import create_unit_paths
@@ -40,6 +39,14 @@ from app.utils.camera_utils import (
     camera_backends,
     read_single_preview_frame,
     scan_local_cameras,
+)
+from app.utils.model_discovery import (
+    OSNET_MODEL_NAMES,
+    discover_reid_models,
+    discover_yolo_models,
+    display_labels,
+    reid_architectures,
+    selectable_paths,
 )
 from app.utils.upload_utils import persist_uploaded_video
 
@@ -80,16 +87,54 @@ def reset_editor() -> None:
 
 def render_pipeline_editor() -> dict[str, object]:
     st.subheader("Modelle und Tracking")
-    st.text_input("YOLO model", key="pipeline_yolo_model")
+    yolo_models = discover_yolo_models()
+    yolo_labels = display_labels(yolo_models)
+    st.selectbox(
+        "YOLO model",
+        options=selectable_paths(st.session_state["pipeline_yolo_model"], yolo_models),
+        format_func=lambda value: yolo_labels.get(value, value),
+        key="pipeline_yolo_model",
+        accept_new_options=True,
+        help="Lokal gefundene Gewichte werden angeboten; ein eigener Pfad kann weiterhin eingegeben werden.",
+    )
     st.text_input(
         "Tracker configuration", key="pipeline_tracker",
         help="bytetrack.yaml, botsort.yaml oder eine eigene YAML-Datei. Interne Tracker-Schwellen werden in dieser Datei eingestellt.",
     )
     st.selectbox("Encoder backend", ["colorhist", "torchreid"], key="pipeline_encoder_backend")
-    st.text_input("ReID model", key="pipeline_reid_model_name")
-    st.text_input("ReID checkpoint", key="pipeline_reid_checkpoint",
-                  help="Explizite ReID-Gewichte für OSNet. Relative Pfade beziehen sich auf das Projekt; Farbhistogramme ignorieren dieses Feld.")
+    reid_models = discover_reid_models()
+    architecture_options = list(dict.fromkeys([
+        st.session_state["pipeline_reid_model_name"],
+        *reid_architectures(reid_models),
+        *OSNET_MODEL_NAMES,
+    ]))
+    st.selectbox(
+        "ReID model",
+        options=architecture_options,
+        key="pipeline_reid_model_name",
+        accept_new_options=True,
+        help="Architektur des ReID-Encoders. Erkannte OSNet-Architekturen lokaler Checkpoints stehen zuerst.",
+    )
+    reid_labels = display_labels(reid_models)
+    st.selectbox(
+        "ReID checkpoint",
+        options=selectable_paths(st.session_state["pipeline_reid_checkpoint"], reid_models),
+        format_func=lambda value: reid_labels.get(value, value),
+        key="pipeline_reid_checkpoint",
+        accept_new_options=True,
+        help="Explizite ReID-Gewichte für OSNet. Relative Pfade beziehen sich auf das Projekt; Farbhistogramme ignorieren dieses Feld.",
+    )
     st.text_input("Device", key="pipeline_device", help="auto, cpu, cuda oder cuda:0")
+    st.selectbox(
+        "Identity decision policy",
+        options=["main_single_threshold", "details_tracking_v2"],
+        format_func=lambda value: {
+            "main_single_threshold": "Main: einzelne Match-Schwelle",
+            "details_tracking_v2": "Details Tracking: Detail-/Evidenz-Pipeline",
+        }[value],
+        key="pipeline_decision_policy",
+        help="Dieser Algorithmus gehört zum Preset und ist unabhängig vom unten gewählten Testmodul.",
+    )
 
     st.subheader("Schwellenwerte")
     for field, label, lower, upper, help_text in (
@@ -116,6 +161,34 @@ def render_pipeline_editor() -> dict[str, object]:
     st.number_input("Crop padding", min_value=0.0, step=0.01, format="%.4f",
                     key="pipeline_crop_padding", help="Zusätzlicher Rand relativ zur Boxgröße, z. B. 0,05 = 5 % pro Seite.")
 
+    with st.expander("Details-Tracking-Methodik"):
+        if st.session_state["pipeline_decision_policy"] != "details_tracking_v2":
+            st.caption("Diese Werte werden gespeichert, aber erst mit der Details-Tracking-Policy aktiv.")
+        for field, label, help_text in (
+            ("detail_weight", "Detail reranking weight", "Gewicht visueller Details zusätzlich zur ReID-Cosine-Similarity."),
+            ("detail_min_confidence", "Minimum detail confidence", "Mindestvertrauen, ab dem extrahierte Details das Ranking beeinflussen."),
+            ("new_person_low_match_ratio", "Required low-match ratio", "Anteil niedriger Scores im Evidenzfenster für die verzögerte Neuanlage."),
+            ("new_person_overlap_threshold", "Overlap protection threshold", "Verhindert neue IDs bei zu starker zeitlicher Überlappung mit bekannten Identitäten."),
+            ("motion_identity_bonus", "Motion continuity bonus", "Kleiner Bonus für räumlich plausible Fortsetzungen derselben Identität."),
+            ("motion_identity_max_distance_fraction", "Motion maximum distance fraction", "Maximaler Mittelpunktabstand relativ zur Bilddiagonale für den Bonus."),
+        ):
+            st.number_input(label, min_value=0.0, max_value=1.0, step=0.01, format="%.4f",
+                            key=f"pipeline_{field}", help=help_text)
+        for field, label, help_text in (
+            ("strong_match_threshold", "Strong match threshold", "Ab diesem kombinierten Score wird die Identität sicher übernommen und aktualisiert."),
+            ("weak_match_threshold", "Weak match threshold", "Ab diesem Score bleibt eine Zuordnung vorläufig; das Personenprofil wird nicht aktualisiert."),
+            ("new_person_max_score", "New-person maximum score", "Nur Kandidaten unterhalb dieses Scores liefern Evidenz für eine neue Person."),
+        ):
+            st.number_input(label, min_value=-1.0, max_value=1.0, step=0.01, format="%.4f",
+                            key=f"pipeline_{field}", help=help_text)
+        for field, label, help_text in (
+            ("new_person_min_evidence_events", "Minimum new-person evidence events", "Benötigte niedrige Match-Beobachtungen vor einer neuen synthetischen ID."),
+            ("new_person_min_evidence_span_frames", "Minimum evidence span (frames)", "Mindestdauer der Evidenz, damit kurzzeitige Fehler keine neue ID erzeugen."),
+            ("new_person_evidence_window_frames", "Evidence window (frames)", "Zeitfenster, in dem die Evidenz gesammelt wird."),
+            ("motion_identity_max_frame_gap", "Motion maximum frame gap", "Maximaler Abstand zur letzten Beobachtung für den Kontinuitätsbonus."),
+        ):
+            st.number_input(label, min_value=1, step=1, key=f"pipeline_{field}", help=help_text)
+
     st.subheader("Ausgabeparameter")
     st.checkbox("Annotate output video", key="pipeline_draw_debug")
     st.number_input("Preview every N frames", min_value=1, step=1,
@@ -125,7 +198,7 @@ def render_pipeline_editor() -> dict[str, object]:
 
 def render_save_mode_form(paths: AppPaths, config: PipelineConfig) -> None:
     with st.expander("Aktuelle Einstellungen als neue Versuchskonfiguration speichern"):
-        st.caption("Speichert exakt alle oben eingestellten Pipeline-Parameter. B0/A1/A2/A3 und vorhandene Presets werden nicht überschrieben.")
+        st.caption("Speichert exakt alle oben eingestellten Pipeline-Parameter. B0/A1/A2/A3/D1 und vorhandene Presets werden nicht überschrieben.")
         with st.form("save_current_configuration"):
             custom_name = st.text_input("Mode name", value="Mein ReID-Pilot")
             custom_mode_id_raw = st.text_input("Mode id", value="mein_reid_pilot")
@@ -154,7 +227,7 @@ paths.ensure()
 
 st.title("Local Person Re-Identification MVP")
 st.caption("Forschungsprototyp: YOLO, Tracking, qualitätsgefilterte ReID und lokale SQLite-Speicherung")
-st.caption("B0/A1/A2/A3 sind Ausgangspresets: Pilotwerte als eigene Konfigurationen speichern und vor den Testclips einfrieren. Frame-Export und Laufmanifest sind vorbereitet.")
+st.caption("B0/A1/A2/A3 und D1 sind Ausgangspresets: D1 aktiviert die Details-Tracking-Pipeline. Pilotwerte als eigene Konfigurationen speichern und vor den Testclips einfrieren.")
 
 modes = list_modes(paths)
 pending_preset_id = st.session_state.pop("pending_preset_id", None)
@@ -204,23 +277,16 @@ with st.sidebar:
         "Test module",
         ["Mehrpersonen- und Trackingtest", "Einzelpersonen- und Detailtest"],
         help=(
-            "Der Mehrpersonentest zeigt die vorhandenen main-Artefakte und Laufzeitmetriken. "
-            "Der Einzelpersonentest erzeugt zusätzlich den aus Details_Tracking portierten "
-            "Kontinuitäts- und Fragmentierungsbericht."
+            "Das Testmodul bestimmt nur Auswertung und Bericht. Die oben ausgewählte Pipeline "
+            "bleibt unverändert: Beide Tests funktionieren mit jedem Preset."
         ),
     )
     if test_module == "Mehrpersonen- und Trackingtest":
-        use_detail_tracking = st.checkbox(
-            "Details_Tracking-Policy auch für 2+ Personen verwenden",
-            value=True,
-            help="Aktiviert Detail-Re-Ranking, Strong/Weak/Low-Zonen, verzögerte neue IDs und den kleinen räumlichen Kontinuitätsbonus.",
-        )
         single_expected_person_id = ""
         single_condition = ""
         single_notes = ""
     else:
-        use_detail_tracking = True
-        st.caption("Kontrollierter Test mit genau einer realen Person; keine IDF1/MOTA-Mehrpersonenauswertung.")
+        st.caption("Kontrollierter Test mit genau einer realen Person; wertet die aktuell gewählte Pipeline mit Kontinuitäts- und Fragmentierungsmetriken aus.")
         single_expected_person_id = st.text_input("Expected person ID (optional)", value="")
         single_condition = st.text_input("Test condition", value="default")
         single_notes = st.text_area("Test notes", value="", height=70)
@@ -375,11 +441,7 @@ if run_clicked and source is not None:
         run_paths = create_unit_paths(base_paths=paths, mode_id=config.mode_id) if isolated_run else paths
         run_paths = paths_for_encoder(run_paths, config)
         st.session_state["last_run_paths"] = run_paths
-        pipeline = PersonReIdPipeline(
-            config=config,
-            paths=run_paths,
-            detail_policy=DetailTrackingPolicy() if use_detail_tracking else None,
-        )
+        pipeline = PersonReIdPipeline(config=config, paths=run_paths)
         result = pipeline.process(
             source,
             progress_callback=update_progress,
@@ -415,7 +477,7 @@ if run_clicked and source is not None:
         st.metric("Created persons in this run", result.created_persons)
         st.metric("Matched events in this run", result.matched_events)
         st.metric("Total known persons", len(result.persons))
-        if use_detail_tracking:
+        if result.decision_policy == "details_tracking_v2":
             st.metric("Strong matches", result.strong_match_events)
             st.metric("Pending weak matches", result.pending_weak_match_events)
             st.metric("Pending new-person observations", result.pending_new_person_events)
@@ -429,7 +491,7 @@ if run_clicked and source is not None:
             expected_person_id=single_expected_person_id.strip() or None,
             notes=single_notes,
         )
-        st.subheader("Einzelpersonen-Metriken (Details_Tracking)")
+        st.subheader("Einzelpersonen-Metriken")
         metric_columns = st.columns(4)
         metric_columns[0].metric("Dominant Track Ratio", f"{report.metrics['dominant_track_ratio'] * 100:.1f} %")
         metric_columns[1].metric("Dominant Person Ratio", f"{report.metrics['dominant_person_ratio'] * 100:.1f} %")

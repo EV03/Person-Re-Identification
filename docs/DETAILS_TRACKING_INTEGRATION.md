@@ -17,7 +17,7 @@ Speicher. Die Funktionen wurden daher gezielt in die aktuelle Architektur
 |---|---|---|
 | Detail Registry | Schwache, erklärbare Merkmale wie Brille, Kappe, Ober-/Unterkörperfarbe und Textur aus Person-Crops gewinnen | `app/utils/detail_utils.py`; optionales Re-Ranking, niemals alleinige Identitätsentscheidung |
 | Detail-Re-Ranking | OSNet-Cosine-Score leicht anheben oder absenken; `0,5` bleibt neutral | `final = visual + (detail - 0.5) * weight`, begrenzt auf `[-1, 1]` |
-| Strong/Weak/Low-Zonen | Sichere Matches von unsicheren Kandidaten und klar niedrigen Scores trennen | Optionale `DetailTrackingPolicy`; Weak erhält eine vorläufige ID, aktualisiert aber das Profil nicht |
+| Strong/Weak/Low-Zonen | Sichere Matches von unsicheren Kandidaten und klar niedrigen Scores trennen | D1-`DetailTrackingPolicy`; Weak erhält eine vorläufige ID, aktualisiert aber das Profil nicht |
 | Verzögerte neue IDs | Eine neue Person erst nach wiederholten niedrigen Scores und ausreichender Zeitspanne anlegen | Laufbezogener Evidenzpuffer pro Track |
 | Überlappungsschutz | Bei stark überlappenden Boxen im selben Frame keine vorschnelle zweite Identität erzeugen | Intersection-over-smaller-box gegen bereits zugewiesene Boxen |
 | Räumlicher Kontinuitätsbonus | Kürzlich nahe beobachtete Person als kleinen Zusatzhinweis nutzen | Maximaler Bonus `0,04`; kein biometrisches Merkmal und kein Ersatz für den Tracker |
@@ -25,8 +25,16 @@ Speicher. Die Funktionen wurden daher gezielt in die aktuelle Architektur
 | Einzelpersonen-Test | Track-/Person-Kontinuität und Fragmentierung in kontrollierten Ein-Person-Videos messen | Importierbares Modul plus `scripts/evaluate_single_person_videos.py` |
 
 Die normale `main`-Policy bleibt verfügbar. Dadurch ändern sich B0/A1/A2/A3
-nicht stillschweigend. Streamlit aktiviert die neue Policy explizit im gewählten
-Testmodul und schreibt die tatsächlich verwendete Policy in das Laufmanifest.
+nicht stillschweigend. Die portierte Methodik ist als eigenes Preset
+`details_tracking` / **D1 - Details Tracking** oben in der Streamlit-Seitenleiste
+auswählbar. Entscheidungspolicy und sämtliche Detail-, Evidenz- und
+Bewegungsparameter gehören zur gespeicherten Pipeline-Konfiguration. Die
+tatsächlich verwendete Policy wird in das Laufmanifest geschrieben.
+
+YOLO-Gewichte in `models/yolo`, `data/models` oder im Projektstamm sowie
+ReID-Checkpoints in `models/reid`, `data/models` oder dem Torch-Checkpoint-Cache
+werden automatisch in den Modell-Dropdowns angeboten. Eigene Pfade bleiben
+eingebbar. Das ist eine lokale Dateierkennung, kein automatischer Download.
 
 ## Zwei Testmodule in der Web-UI
 
@@ -35,18 +43,23 @@ Testmodul und schreibt die tatsächlich verwendete Policy in das Laufmanifest.
 - geeignet für zwei oder mehr sichtbare Personen;
 - zeigt die vorhandenen `main`-Artefakte (`frames.jsonl`, MOT-Export,
   Laufmanifest), Laufzeit, FPS und Real-Time-Factor;
-- kann die `Details_Tracking`-Policy zum direkten Vergleich ein- oder ausschalten;
+- läuft wahlweise mit B0/A1/A2/A3, D1 oder einem eigenen gespeicherten Preset;
 - erzeugt ohne dichte Ground Truth bewusst keine behaupteten IDF1-/MOTA-Werte.
 
 ### Einzelpersonen- und Detailtest
 
 - erwartet genau eine reale Person im Video;
-- verwendet immer die `Details_Tracking`-Policy;
+- wertet die oben ausgewählte Pipeline aus, ohne deren Policy zu verändern;
 - berechnet dominante Track-/Person-Quote, Track-/Person-Wechsel,
   Expected-Person-Quote, Profilwachstum und Fragmentierungsindex;
 - speichert JSON-, Markdown- und CSV-Bericht beim Laufartefakt;
 - ist zusätzlich per Manifest als `fixed_db`, `learn_through` oder
   `adaptive_calibration` ausführbar.
+
+Die Auswahl des Testmoduls ändert ausschließlich die Auswertung: Beide
+Testmodule können mit jeder Pipeline ausgeführt werden. Für einen
+Details-Tracking-Lauf wird D1 oben als ReID-Preset gewählt; für denselben
+Einzelpersonentest mit der Main-Methode wird beispielsweise B0 gewählt.
 
 ## Entfernte Bestandteile und ihre frühere Aufgabe
 
@@ -66,7 +79,7 @@ dieser Integration nicht wieder in den aktiven Pfad aufgenommen.
 | Football Mode | Gemeinsame Flags und Preset für diese Module bereitstellen | Entfernt, da die Module im Hauptpfad nicht vollständig verdrahtet waren |
 | Max-Accuracy Mode | Größere Modelle, höhere Auflösung und aggressive Genauigkeitseinstellungen bündeln | Kein sauber isolierter Methodenvergleich zu B0/A1/A2/A3 |
 | Allgemeine Motion-Diagnostik | Richtung, Pixelgeschwindigkeit, Sprünge und Plausibilität pro Tracker-ID protokollieren | Die umfangreiche Diagnose bleibt entfernt; nur der eng begrenzte Kontinuitätsbonus wurde übernommen |
-| Model Discovery/Manager und Windows-Setuphelfer | Lokale Modellgewichte finden, installieren und Start-/Umgebungsprüfungen vereinfachen | Betriebs-/Komfortfunktionen, keine ReID-Methodik; können separat wiederverwendet werden |
+| Model Manager und Windows-Setuphelfer | Modelle installieren und Start-/Umgebungsprüfungen vereinfachen | Automatische Installation bleibt entfernt; eine kleine, rein lokale Modell-Dateierkennung für die UI wurde wieder aufgenommen |
 
 ## Methodische Grenzen
 
@@ -87,6 +100,9 @@ python scripts/evaluate_single_person_videos.py init-manifest --video-root Test-
 python scripts/evaluate_single_person_videos.py run `
   --manifest data/evaluation_manifest.csv `
   --test-mode fixed_db `
-  --preset default `
+  --preset details_tracking `
   --max-frames 0
 ```
+
+`--preset default` führt denselben Einzelpersonentest mit der Main-Pipeline aus;
+auch die übrigen eingebauten und selbst gespeicherten Presets sind zulässig.

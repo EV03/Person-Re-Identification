@@ -9,12 +9,12 @@ Qualitätsprüfung, OSNet/Farbhistogramm, synthetische Personen-IDs und SQLite.
 **Profilrechnung und Profilschutz:** [Personenprofile](docs/PROFILE_UPDATES.md).
 **Umfang und offene Voraussetzungen:** [Evaluationsstand](docs/EVALUATION_SCOPE.md).
 
-Die optionale Integration der erklärbaren Detail-/Tracking-Policy sowie die
+Das eigene D1-Preset mit erklärbarer Detail-/Tracking-Policy sowie die
 getrennten Mehrpersonen- und Einzelpersonen-Testmodule sind in
 [DETAILS_TRACKING_INTEGRATION.md](docs/DETAILS_TRACKING_INTEGRATION.md) beschrieben.
 **Versuchsplan und Paper:** [LaTeX-Quelle](docs/technische_systemdokumentation.tex).
 
-Die quantitative Evaluation steht noch aus. B0/A1/A2/A3 verwenden dokumentierte
+Die quantitative Evaluation steht noch aus. B0/A1/A2/A3 und das getrennte D1-Preset verwenden dokumentierte
 ReID-Gewichte beziehungsweise Farbhistogramme. Vollständige Frame-Exporte,
 isolierte Versuchsläufe und technische Laufmanifeste sind implementiert.
 Vor der eigentlichen Messung fehlen noch annotierte Pilot-/Testclips und deren
@@ -66,6 +66,7 @@ automatische Paketinstallationen während der Verarbeitung sind deaktiviert.
 | `colorhist` | A1 | HSV-Farbhistogramm | 0,55 / 0,65 |
 | `no_quality_thresholds` | A2 | OSNet | 0 / 0 |
 | `no_update_similarity` | A3 | OSNet | 0,55 / 0,65 |
+| `details_tracking` | D1 | OSNet + Details-Policy | 0,55 / 0,65 |
 
 Alle Presets verwenden zunächst YOLOv8n, ByteTrack, Cosine-Schwellwert 0,82,
 Detektionskonfidenz 0,35, Eingangsgröße 640, drei Initialbeobachtungen und Updates
@@ -74,6 +75,8 @@ A2 behält Mindestgrößen, Qualitätsgewichtung und Snapshot-Auswahl bei.
 A3 verändert nur `min_update_similarity` auf -1: Updates und Qualitätsgrenzen
 bleiben aktiv, die zusätzliche Ähnlichkeitsprüfung ist aus. Die anderen Presets
 verwenden zunächst 0,82 für diese Prüfung. Das sind Ausgangs-, keine finalen Pilotwerte.
+D1 ergänzt Detail-Re-Ranking, Strong/Weak/Low-Entscheidungszonen, Evidenz vor
+neuen IDs, Überlappungsschutz und einen begrenzten räumlichen Kontinuitätsbonus.
 
 Für einen vollständigen Clip ausdrücklich `--max-frames 0` verwenden; der
 interaktive Standard begrenzt den Lauf auf 500 Frames.
@@ -82,6 +85,7 @@ interaktive Standard begrenzt den Lauf auf 500 Frames.
 python -m app.main --source data/input/pilot.mp4 --mode colorhist --max-frames 0
 python -m app.main --source data/input/pilot.mp4 --mode default --max-frames 0
 python -m app.main --source data/input/pilot.mp4 --mode no_quality_thresholds --max-frames 0
+python -m app.main --source data/input/pilot.mp4 --mode details_tracking --max-frames 0
 ```
 
 Diese Befehle verwenden einen geteilten Bestand **pro Encoder-Konfiguration**.
@@ -95,7 +99,8 @@ Für die eigentliche Evaluation stattdessen den isolierten Versuchsstarter nutze
 python -m app.evaluation --sources data/input/pilot.mp4
 ```
 
-Das verarbeitet das vollständige Video mit den vier eingebauten Ausgangspresets,
+Das verarbeitet das vollständige Video standardmäßig mit den vier Presets des
+Kernvergleichs,
 je Variante mit neuer Datenbank. Für die finale, reduzierte Evaluation werden
 zunächst vier kalibrierte Kopien in der UI gespeichert. Zwölf getrennte Testsequenzen
 in vier Versuchsgruppen ergeben **48 Kernläufe**, keine durchgehende Frameannotation.
@@ -131,7 +136,11 @@ ist vor dem Start einsehbar und wird vollständig in den Laufmetadaten gespeiche
 Nach dem Speichern wird das neue Preset automatisch geladen. Referenzpresets und
 bestehende eigene Presets können dabei nicht überschrieben werden.
 
-Quelle, Vorschauanzeige und Vorschau-Breite sind keine Pipeline-Presetparameter.
+Quelle, Testmodul, Vorschauanzeige und Vorschau-Breite sind keine
+Pipeline-Presetparameter. Das Testmodul bestimmt nur die Auswertung; Mehrpersonen-
+und Einzelpersonentest funktionieren mit jeder gewählten Pipeline. Lokale YOLO-
+und ReID-Gewichte werden in Dropdowns angeboten, eigene Pfade können eingegeben
+werden.
 Qualitätsschwellen auf null deaktivieren nur ihre jeweiligen Gates; eine
 Crop-Mindestgröße von null deaktiviert diese Größengrenze. Updates müssen weiterhin
 beide Qualitätsschwellen erfüllen. Für die finale Evaluation Einstellungen auf

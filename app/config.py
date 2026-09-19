@@ -62,6 +62,7 @@ class PipelineSettings:
     """
 
     pipeline_type: str = "person_reid"
+    decision_policy: str = "main_single_threshold"
 
     yolo_model: str = os.getenv("REID_DEFAULT_MODEL", "yolov8n.pt")
     tracker: str = os.getenv("REID_DEFAULT_TRACKER", "bytetrack.yaml")
@@ -84,16 +85,47 @@ class PipelineSettings:
     draw_debug: bool = True
     live_preview_every_n_frames: int = 10
 
+    # Optional Details_Tracking identity-decision method. These values are part
+    # of a preset even when the main policy is selected, making D1 reproducible.
+    detail_weight: float = 0.15
+    detail_min_confidence: float = 0.55
+    strong_match_threshold: float = 0.82
+    weak_match_threshold: float = 0.68
+    new_person_max_score: float = 0.58
+    new_person_min_evidence_events: int = 6
+    new_person_min_evidence_span_frames: int = 15
+    new_person_evidence_window_frames: int = 30
+    new_person_low_match_ratio: float = 0.80
+    new_person_overlap_threshold: float = 0.65
+    motion_identity_bonus: float = 0.04
+    motion_identity_max_frame_gap: int = 15
+    motion_identity_max_distance_fraction: float = 0.15
+
     is_custom: bool = False
 
     def __post_init__(self) -> None:
         if self.pipeline_type != "person_reid":
             raise ValueError("Only the person_reid pipeline is supported on this branch.")
+        if self.decision_policy not in {"main_single_threshold", "details_tracking_v2"}:
+            raise ValueError("Unknown identity decision policy.")
         import math
-        for name in ("match_threshold", "min_update_similarity"):
+        for name in ("match_threshold", "min_update_similarity", "strong_match_threshold",
+                     "weak_match_threshold", "new_person_max_score"):
             value = getattr(self, name)
             if not math.isfinite(value) or not -1 <= value <= 1:
                 raise ValueError(f"{name} must be finite and between -1 and 1.")
+        for name in ("detail_weight", "detail_min_confidence", "new_person_low_match_ratio",
+                     "new_person_overlap_threshold", "motion_identity_bonus",
+                     "motion_identity_max_distance_fraction"):
+            value = getattr(self, name)
+            if not math.isfinite(value) or not 0 <= value <= 1:
+                raise ValueError(f"{name} must be finite and between 0 and 1.")
+        if self.strong_match_threshold < self.weak_match_threshold:
+            raise ValueError("strong_match_threshold must be at least weak_match_threshold.")
+        for name in ("new_person_min_evidence_events", "new_person_min_evidence_span_frames",
+                     "new_person_evidence_window_frames", "motion_identity_max_frame_gap"):
+            if getattr(self, name) < 1:
+                raise ValueError(f"{name} must be at least 1.")
 
 
 @dataclass(frozen=True)

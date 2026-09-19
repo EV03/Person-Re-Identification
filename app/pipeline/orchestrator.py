@@ -100,7 +100,12 @@ class PersonReIdPipeline:
         self.tracker = tracker
         self.encoder = encoder
         self.tracker_factory = tracker_factory
-        self.detail_policy = detail_policy
+        self.detail_policy = (
+            detail_policy if detail_policy is not None
+            else DetailTrackingPolicy.from_config(config)
+            if config.decision_policy == "details_tracking_v2"
+            else None
+        )
         self._has_processed = False
 
     def _open_capture(self, source: str | int | CameraSource) -> cv2.VideoCapture:

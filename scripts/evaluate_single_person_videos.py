@@ -1,4 +1,4 @@
-"""Details_Tracking single-person evaluator adapted to main's artifact contract.
+"""Single-person evaluator for any preset using main's artifact contract.
 
 Examples:
     python scripts/evaluate_single_person_videos.py init-manifest --video-root Test-daten
@@ -22,7 +22,6 @@ if str(PROJECT_ROOT) not in sys.path:
 from app.config import AppPaths  # noqa: E402
 from app.evaluation.single_person import create_single_person_report  # noqa: E402
 from app.modes.mode_registry import get_mode  # noqa: E402
-from app.pipeline.detail_tracking import DetailTrackingPolicy  # noqa: E402
 from app.pipeline.orchestrator import PersonReIdPipeline  # noqa: E402
 from app.storage.encoder_paths import paths_for_encoder  # noqa: E402
 from app.utils.id_utils import safe_source_name  # noqa: E402
@@ -69,12 +68,12 @@ def copy_database(source: Path, destination: Path) -> None:
         shutil.copy2(source, destination)
 
 
-def run_video(row: dict[str, str], *, paths: AppPaths, config, policy: DetailTrackingPolicy,
+def run_video(row: dict[str, str], *, paths: AppPaths, config,
               expected_person_id: str | None) -> tuple[dict[str, object], str | None]:
     video = project_path(row["video_path"])
     if not video.is_file():
         raise FileNotFoundError(video)
-    pipeline = PersonReIdPipeline(config=config, paths=paths, detail_policy=policy)
+    pipeline = PersonReIdPipeline(config=config, paths=paths)
     result = pipeline.process(str(video))
     if result.predictions_path is None:
         raise RuntimeError("Pipeline produced no frames.jsonl artifact.")
@@ -99,7 +98,6 @@ def run_manifest(args: argparse.Namespace) -> Path:
     run_dir.mkdir(parents=True, exist_ok=False)
     mode = get_mode(args.preset)
     config = mode.to_pipeline_config(max_frames=args.max_frames, device=args.device)
-    policy = DetailTrackingPolicy()
     base_paths = AppPaths(
         db_path=run_dir / "working" / "reid.sqlite3", snapshot_dir=run_dir / "snapshots",
         output_dir=run_dir / "output", mode_dir=PROJECT_ROOT / "data" / "modes",
@@ -111,7 +109,7 @@ def run_manifest(args: argparse.Namespace) -> Path:
     calibration_rows = [row for row in rows if row["phase"] == "calibration"]
     test_rows = [row for row in rows if row["phase"] == "test"]
     for row in calibration_rows:
-        summary, detected = run_video(row, paths=base_paths, config=config, policy=policy,
+        summary, detected = run_video(row, paths=base_paths, config=config,
                                       expected_person_id=expected_id)
         summaries.append(summary)
         expected_id = expected_id or detected
@@ -129,7 +127,7 @@ def run_manifest(args: argparse.Namespace) -> Path:
             target_db = paths_for_encoder(test_paths, config).db_path
             if calibrated_db.exists():
                 copy_database(calibrated_db, target_db)
-            summary, _ = run_video(row, paths=test_paths, config=config, policy=policy,
+            summary, _ = run_video(row, paths=test_paths, config=config,
                                    expected_person_id=expected_id)
             summaries.append(summary)
     else:
@@ -140,7 +138,7 @@ def run_manifest(args: argparse.Namespace) -> Path:
         if calibrated_db.exists():
             copy_database(calibrated_db, target_db)
         for row in test_rows:
-            summary, _ = run_video(row, paths=adaptive_paths, config=config, policy=policy,
+            summary, _ = run_video(row, paths=adaptive_paths, config=config,
                                    expected_person_id=expected_id)
             summaries.append(summary)
 
@@ -154,7 +152,7 @@ def run_manifest(args: argparse.Namespace) -> Path:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Controlled single-person evaluation with Details_Tracking policy.")
+    parser = argparse.ArgumentParser(description="Controlled single-person evaluation for any ReID preset.")
     sub = parser.add_subparsers(dest="command", required=True)
     init = sub.add_parser("init-manifest")
     init.add_argument("--video-root", required=True)

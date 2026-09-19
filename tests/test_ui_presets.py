@@ -22,11 +22,12 @@ def keyed_widget(app, key):
 
 
 EDITED_PARAMETERS = {
-    "yolo_model": "yolov8s.pt",
+    "decision_policy": "details_tracking_v2",
+    "yolo_model": "yolov8n.pt",
     "tracker": "pilot_tracker.yaml",
     "encoder_backend": "colorhist",
     "reid_model_name": "osnet_x0_5",
-    "reid_checkpoint": "data/models/pilot.pth",
+    "reid_checkpoint": "data/models/osnet_x1_0_msmt17.pth",
     "match_threshold": .731,
     "detection_confidence": .1234,
     "image_size": 736,
@@ -42,13 +43,26 @@ EDITED_PARAMETERS = {
     "device": "cpu",
     "draw_debug": False,
     "live_preview_every_n_frames": 13,
+    "detail_weight": .12,
+    "detail_min_confidence": .52,
+    "strong_match_threshold": .84,
+    "weak_match_threshold": .69,
+    "new_person_max_score": .57,
+    "new_person_min_evidence_events": 5,
+    "new_person_min_evidence_span_frames": 12,
+    "new_person_evidence_window_frames": 28,
+    "new_person_low_match_ratio": .75,
+    "new_person_overlap_threshold": .60,
+    "motion_identity_bonus": .03,
+    "motion_identity_max_frame_gap": 12,
+    "motion_identity_max_distance_fraction": .12,
 }
 
 
 def edit_every_parameter(app):
     for field, value in EDITED_PARAMETERS.items():
         widget = keyed_widget(app, f"pipeline_{field}")
-        if field == "encoder_backend":
+        if field in {"yolo_model", "encoder_backend", "reid_model_name", "reid_checkpoint", "decision_policy"}:
             widget.select(value)
         else:
             widget.set_value(value)
@@ -62,10 +76,17 @@ class UiPresetTests(unittest.TestCase):
             app = AppTest.from_file("app/ui/streamlit_app.py").run()
             module = next(widget for widget in app.selectbox if widget.label == "Test module")
             self.assertEqual(module.options, ["Mehrpersonen- und Trackingtest", "Einzelpersonen- und Detailtest"])
-            self.assertTrue(any(widget.label == "Details_Tracking-Policy auch für 2+ Personen verwenden"
-                                for widget in app.checkbox))
+            self.assertFalse(any(widget.label == "Details_Tracking-Policy auch für 2+ Personen verwenden"
+                                 for widget in app.checkbox))
+            self.assertEqual(keyed_widget(app, "pipeline_decision_policy").value, "main_single_threshold")
             module.select("Einzelpersonen- und Detailtest").run()
+            self.assertEqual(keyed_widget(app, "pipeline_decision_policy").value, "main_single_threshold")
+            preset = next(widget for widget in app.selectbox if widget.label == "ReID preset")
+            self.assertTrue(any("(details_tracking)" in option for option in preset.options))
+            preset.select("details_tracking").run()
+            self.assertEqual(keyed_widget(app, "pipeline_decision_policy").value, "details_tracking_v2")
             self.assertFalse(app.exception)
+            self.assertEqual(keyed_widget(app, "pipeline_decision_policy").value, "details_tracking_v2")
             self.assertTrue(any(widget.label == "Expected person ID (optional)" for widget in app.text_input))
             self.assertTrue(any(widget.label == "Test condition" for widget in app.text_input))
 
@@ -97,6 +118,9 @@ class UiPresetTests(unittest.TestCase):
                 app = AppTest.from_file("app/ui/streamlit_app.py", default_timeout=20).run()
                 self.assertEqual(len(app.exception), 0)
                 self.assertEqual(next(w for w in app.selectbox if w.label == "Encoder backend").value, "torchreid")
+                self.assertTrue(any(w.label == "YOLO model" for w in app.selectbox))
+                self.assertTrue(any(w.label == "ReID model" for w in app.selectbox))
+                self.assertTrue(any(w.label == "ReID checkpoint" for w in app.selectbox))
                 for preset, encoder, quality, update_similarity in (
                     ("colorhist", "colorhist", .55, .82),
                     ("no_quality_thresholds", "torchreid", 0.0, .82),
@@ -107,8 +131,10 @@ class UiPresetTests(unittest.TestCase):
                     self.assertEqual(next(w for w in app.selectbox if w.label == "Encoder backend").value, encoder)
                     self.assertEqual(keyed_widget(app, "pipeline_min_embedding_quality").value, quality)
                     self.assertEqual(keyed_widget(app, "pipeline_min_update_similarity").value, update_similarity)
+                next(w for w in app.selectbox if w.label == "ReID preset").select("details_tracking").run()
+                self.assertEqual(keyed_widget(app, "pipeline_decision_policy").value, "details_tracking_v2")
                 labels = [w.label for w in app.checkbox] + [w.label for w in app.selectbox]
-                self.assertFalse(any("motion" in label.lower() or "football" in label.lower() for label in labels))
+                self.assertFalse(any("football" in label.lower() for label in labels))
                 self.assertEqual(len(list(paths.mode_dir.glob("*.json"))), 0)
 
     def test_editor_has_one_control_for_every_runtime_parameter(self) -> None:
