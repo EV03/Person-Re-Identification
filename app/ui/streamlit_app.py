@@ -7,6 +7,7 @@ pipeline work should only start inside an explicit user-action branch.
 
 from __future__ import annotations
 
+import json
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -95,8 +96,11 @@ def render_pipeline_editor() -> dict[str, object]:
         # Ultralytics' track() replaces an exact zero with its 0.1 default.
         ("detection_confidence", "Detection confidence", 0.0001, 1.0, "Konfidenzgrenze für YOLO. Muss positiv sein: Ultralytics würde exakt 0 intern durch 0,1 ersetzen."),
         ("min_embedding_quality", "Min crop quality for ReID candidates", 0.0, 1.0, "0 deaktiviert diese Qualitätsschwelle; Mindestgrößen und Qualitätsgewichtung bleiben erhalten."),
+        ("min_initial_blur_score", "Min. Schärfe für Initialkandidaten", 0.0, 1.0, "Unbekannte Tracks sammeln nur Crops ab diesem Schärfewert. 0 deaktiviert die separate Schärfegrenze."),
+        ("min_border_blur_score", "Min. Schärfe bei Randkontakt", 0.0, 1.0, "Strengere Schärfegrenze, wenn die Personenbox einen Bildrand berührt. Eine scharfe Seitenansicht bleibt erlaubt."),
         ("min_update_quality", "Min crop quality for person embedding updates", 0.0, 1.0, "Updates müssen zusätzlich die Kandidatenschwelle erfüllen."),
         ("min_update_similarity", "Min similarity for person embedding updates", -1.0, 1.0, "Zusätzlicher Profilschutz: Das neue Embedding muss zum bestehenden Personenprofil passen. -1 lässt alle gültigen Ähnlichkeiten zu. Auf Pilotclips abstimmen."),
+        ("max_person_overlap_ratio", "Max person overlap for ReID", 0.0, 1.0, "Maximal erlaubter Schnittflächenanteil relativ zur kleineren Personenbox. 1 deaktiviert die Überlappungssperre."),
     ):
         st.number_input(label, min_value=lower, max_value=upper, step=0.01,
                         format="%.4f", key=f"pipeline_{field}", help=help_text)
@@ -106,9 +110,12 @@ def render_pipeline_editor() -> dict[str, object]:
         ("min_crop_width", "Min crop width (px)", 0, "0 deaktiviert die Mindestbreite; leere Crops bleiben ungültig."),
         ("min_crop_height", "Min crop height (px)", 0, "0 deaktiviert die Mindesthöhe; leere Crops bleiben ungültig."),
         ("min_good_frames_before_reid", "Min good frames before first ReID match", 1, "Anzahl akzeptierter Beobachtungen vor der ersten Identitätsentscheidung."),
-        ("reid_every_n_frames", "ReID every N frames", 1, "Update-Intervall bekannter Tracks; unbekannte Tracks sammeln Kandidaten in jedem Frame."),
+        ("initial_candidate_every_n_frames", "Initial candidate every N frames", 1, "Mindestabstand zwischen akzeptierten Initialbeobachtungen eines unbekannten Tracks."),
+        ("reid_every_n_frames", "ReID update every N frames", 1, "Update-Intervall bereits zugeordneter Tracks."),
         ("image_size", "Image size", 32, "YOLO-Eingangsgröße; Vielfache von 32 verwenden."),
         ("max_frames", "Max frames (0 = vollständiges Video)", 0, "Begrenzt hochgeladene Videos. Für Webcam-Läufe gilt die separat eingestellte Aufnahmedauer."),
+        ("overlap_cooldown_frames", "Overlap cooldown (frames)", 0, "Nach einer starken Personenüberlappung werden so viele Frames lang keine ReID-Profile angelegt oder aktualisiert."),
+        ("track_state_ttl_frames", "Track state TTL (frames)", 1, "Nach so vielen fehlenden Frames wird die laufinterne Zuordnung eines verschwundenen Tracks verworfen. Bei einer Rückkehr ist dadurch eine neue ReID-Entscheidung erforderlich."),
     ):
         st.number_input(label, min_value=minimum, step=1, key=f"pipeline_{field}", help=help_text)
     st.number_input("Crop padding", min_value=0.0, step=0.01, format="%.4f",
@@ -121,9 +128,16 @@ def render_pipeline_editor() -> dict[str, object]:
     return {field: st.session_state[f"pipeline_{field}"] for field in RUNTIME_PARAMETER_FIELDS}
 
 
-def render_save_mode_form(paths: AppPaths, config: PipelineConfig) -> None:
+def queue_saved_preset(saved: ModeConfig, message: str) -> None:
+    """Select a saved preset on the next rerun and show one success notice."""
+    st.session_state["pending_preset_id"] = saved.mode_id
+    st.session_state["preset_saved_notice"] = message
+    st.rerun()
+
+
+def render_preset_forms(paths: AppPaths, config: PipelineConfig, selected_mode: ModeConfig) -> None:
     with st.expander("Aktuelle Einstellungen als neue Versuchskonfiguration speichern"):
-        st.caption("Speichert exakt alle oben eingestellten Pipeline-Parameter. B0/A1/A2/A3 und vorhandene Presets werden nicht überschrieben.")
+        st.caption("Speichert exakt alle oben eingestellten Pipeline-Parameter unter einer neuen ID. B0/A1/A2/A3 und vorhandene Presets werden nicht überschrieben.")
         with st.form("save_current_configuration"):
             custom_name = st.text_input("Mode name", value="Mein ReID-Pilot")
             custom_mode_id_raw = st.text_input("Mode id", value="mein_reid_pilot")
@@ -139,10 +153,36 @@ def render_save_mode_form(paths: AppPaths, config: PipelineConfig) -> None:
             except (OSError, TypeError, ValueError) as exc:
                 st.error(str(exc))
             else:
-                # Apply selection at the start of the rerun, before its widget exists.
-                st.session_state["pending_preset_id"] = saved.mode_id
-                st.session_state["preset_saved_notice"] = f"Gespeichert und geladen: {saved.name} ({saved.mode_id})"
-                st.rerun()
+                queue_saved_preset(saved, f"Gespeichert und geladen: {saved.name} ({saved.mode_id})")
+
+    if selected_mode.is_custom:
+        with st.expander("Ausgewählte Versuchskonfiguration aktualisieren"):
+            st.caption(
+                f"Überschreibt '{selected_mode.mode_id}' mit allen aktuell eingestellten Parametern. "
+                "Die Preset-ID bleibt unverändert."
+            )
+            with st.form("update_selected_configuration"):
+                updated_name = st.text_input("Gespeicherter Name", value=selected_mode.name)
+                updated_description = st.text_area(
+                    "Gespeicherte Beschreibung", value=selected_mode.description, height=80
+                )
+                update_submitted = st.form_submit_button("Ausgewählte Konfiguration aktualisieren")
+            if update_submitted:
+                try:
+                    updated_mode = preset_from_config(
+                        config,
+                        mode_id=selected_mode.mode_id,
+                        name=updated_name.strip() or selected_mode.mode_id,
+                        description=updated_description.strip(),
+                    )
+                    saved = save_custom_mode(updated_mode, paths=paths, overwrite=True)
+                except (OSError, TypeError, ValueError) as exc:
+                    st.error(str(exc))
+                else:
+                    queue_saved_preset(
+                        saved,
+                        f"Aktualisiert und geladen: {saved.name} ({saved.mode_id})",
+                    )
 
 
 st.set_page_config(page_title="Local Person ReID MVP", layout="wide")
@@ -175,7 +215,7 @@ with st.sidebar:
     notice = st.session_state.pop("preset_saved_notice", None)
     if notice:
         st.success(notice)
-    st.caption("Preset laden → Parameter bearbeiten → starten oder als neues Preset speichern. Nur die aktuellen Werte gelten beim Start.")
+    st.caption("Preset laden → Parameter bearbeiten → starten, als neues Preset speichern oder ein eigenes Preset aktualisieren. Nur die aktuellen Werte gelten beim Start.")
     st.button("Änderungen verwerfen / Preset neu laden", on_click=reset_editor)
 
     st.divider()
@@ -191,8 +231,10 @@ with st.sidebar:
         st.success(f"{selected_mode.name}: unverändert")
     if config.min_update_quality < config.min_embedding_quality:
         st.info("Die Update-Schwelle liegt unter der Kandidatenschwelle. Effektiv müssen Updates beide erfüllen; die höhere Schwelle gilt.")
-    st.caption("Schwellen auf Pilotdaten einstellen und vor der Evaluation einfrieren. Die Qualitätsheuristik selbst bleibt unverändert.")
-    render_save_mode_form(paths, config)
+    if config.min_border_blur_score < config.min_initial_blur_score:
+        st.info("Die Rand-Schärfe liegt unter der allgemeinen Initial-Schärfe. Effektiv gilt am Rand ebenfalls die höhere allgemeine Grenze.")
+    st.caption("Schwellen auf Pilotdaten einstellen und vor der Evaluation einfrieren.")
+    render_preset_forms(paths, config, selected_mode)
     with st.expander("Tatsächlich verwendete Pipeline-Konfiguration"):
         st.json(asdict(config))
 
@@ -384,6 +426,14 @@ if run_clicked and source is not None:
         st.metric("Created persons in this run", result.created_persons)
         st.metric("Matched events in this run", result.matched_events)
         st.metric("Total known persons", len(result.persons))
+        if result.manifest_path and result.manifest_path.is_file():
+            try:
+                run_summary = json.loads(result.manifest_path.read_text(encoding="utf-8")).get("summary", {})
+            except (OSError, json.JSONDecodeError):
+                run_summary = {}
+            if run_summary:
+                with st.expander("Detailed run summary"):
+                    st.json(run_summary)
 
 st.divider()
 

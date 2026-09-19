@@ -6,7 +6,7 @@ from typing import Iterable
 
 import numpy as np
 
-from app.reid.repository import EmbeddingBatch, IdentityProfile
+from app.reid.repository import EmbeddingBatch, IdentityProfile, ProfileSearchDecision
 from app.storage.models import MatchResult
 from app.reid.embeddings import checked_embedding, cosine_similarity, normalize_vector
 
@@ -14,20 +14,40 @@ from app.reid.embeddings import checked_embedding, cosine_similarity, normalize_
 class CosineProfileMatcher:
     """Linear cosine search; preserve first candidate on equal scores."""
 
-    def match(self, embedding: np.ndarray, profiles: Iterable[IdentityProfile],
-              threshold: float, exclude_person_ids: set[str]) -> MatchResult | None:
+    def evaluate(self, embedding: np.ndarray, profiles: Iterable[IdentityProfile],
+                 threshold: float, exclude_person_ids: set[str]) -> ProfileSearchDecision:
         query = normalize_vector(embedding)
+        profile_list = list(profiles)
         best_person_id: str | None = None
         best_score = float("-inf")
-        for profile in profiles:
+        eligible_profile_count = 0
+        for profile in profile_list:
             if profile.person_id in exclude_person_ids or profile.embedding.shape != query.shape:
                 continue
+            eligible_profile_count += 1
             score = cosine_similarity(query, profile.embedding)
             if score > best_score:
                 best_person_id, best_score = profile.person_id, score
-        if best_person_id is None or best_score < threshold:
-            return None
-        return MatchResult(best_person_id, best_score, False)
+
+        excluded = tuple(sorted(exclude_person_ids))
+        if not profile_list:
+            return ProfileSearchDecision(None, None, None, "empty_database", 0, excluded)
+        if eligible_profile_count == 0:
+            return ProfileSearchDecision(None, None, None, "no_eligible_profile", 0, excluded)
+        if best_score < threshold:
+            return ProfileSearchDecision(
+                None, best_person_id, float(best_score), "below_match_threshold",
+                eligible_profile_count, excluded,
+            )
+        match = MatchResult(best_person_id, float(best_score), False)
+        return ProfileSearchDecision(
+            match, best_person_id, float(best_score), "matched_existing_profile",
+            eligible_profile_count, excluded,
+        )
+
+    def match(self, embedding: np.ndarray, profiles: Iterable[IdentityProfile],
+              threshold: float, exclude_person_ids: set[str]) -> MatchResult | None:
+        return self.evaluate(embedding, profiles, threshold, exclude_person_ids).match
 
 
 class WeightedMeanProfileUpdater:

@@ -77,6 +77,28 @@ class SettingsContractTests(unittest.TestCase):
 
 
 class ProfileContractTests(unittest.TestCase):
+    def test_search_diagnostics_distinguish_empty_excluded_rejected_and_matched(self):
+        repository = MemoryRepository()
+        service = ProfileService(repository)
+
+        empty = service.search_with_diagnostics(np.array([1., 0.]), .8)
+        self.assertEqual(empty.reason, "empty_database")
+        self.assertIsNone(empty.best_score)
+
+        observe(service, [1., 0.])
+        rejected = service.search_with_diagnostics(np.array([0., 1.]), .8)
+        self.assertEqual(rejected.reason, "below_match_threshold")
+        self.assertEqual(rejected.best_person_id, "person_000001")
+        self.assertEqual(rejected.best_score, 0.)
+
+        excluded = service.search_with_diagnostics(np.array([1., 0.]), .8, {"person_000001"})
+        self.assertEqual(excluded.reason, "no_eligible_profile")
+        self.assertEqual(excluded.excluded_person_ids, ("person_000001",))
+
+        matched = service.search_with_diagnostics(np.array([1., 0.]), .8)
+        self.assertEqual(matched.reason, "matched_existing_profile")
+        self.assertEqual(matched.match.person_id, "person_000001")
+
     def test_minimum_matching_threshold_includes_opposite_valid_vector(self):
         repository = MemoryRepository()
         service = ProfileService(repository)

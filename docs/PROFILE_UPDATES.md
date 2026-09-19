@@ -29,30 +29,49 @@ Die Standard-Kandidatenschwelle ist 0,55, die zusätzliche Updateschwelle 0,65.
 Eine Updateschwelle von 0,65 bedeutet **nicht** 65 % Identitätssicherheit.
 Neue UI-Presets dürfen die Schwellen verändern; die Teilwertkonstanten bleiben fest.
 
-## Erste drei Crops und weitere Beobachtungen
+## Erste fünf Crops und weitere Beobachtungen
 
 Für jeden akzeptierten Crop liefert der Encoder einen normalisierten Vektor z.
 Das Gewicht ist `w = max(Q, 0.05)`; der Boden bleibt bei A2 ohne Qualitätsschwellen erhalten.
-Ein unbekannter Track sammelt standardmäßig drei akzeptierte Beobachtungen.
+Ein unbekannter Track sammelt standardmäßig fünf akzeptierte Beobachtungen.
+Zwischen zwei akzeptierten Initialkandidaten liegen mindestens drei Frames;
+ungeeignete Frames verschieben die nächste Annahme nicht künstlich nach hinten.
 
 ```text
-S = w1*z1 + w2*z2 + w3*z3
-W = w1 + w2 + w3
+S = Summe(wi*zi), i=1..5
+W = Summe(wi), i=1..5
 p = normalize(S / W)
 ```
 
 `p` dient zur Suche nach einem vorhandenen Profil. Ein neues Profil speichert
 S als `embedding_sum`, W als `embedding_weight_sum` und p als `mean_embedding`.
-`observations` zählt akzeptierte Einzel-Crops, also zunächst drei, nicht ein Batch.
+`observations` zählt akzeptierte Einzel-Crops, also zunächst fünf, nicht ein Batch.
 Der beste Crop liefert den Snapshot, aber nicht mehr das Gesamtgewicht des Batches.
 
-Für einen bekannten Track wird standardmäßig im Videoframe 5, 10, 15 usw.
-der aktuelle Crop geprüft; es wird nicht der beste Crop aus fünf Frames gewählt.
+Für einen bekannten Track wird standardmäßig im Videoframe 10, 20, 30 usw.
+der aktuelle Crop geprüft; es wird nicht der beste Crop aus zehn Frames gewählt.
 Er muss Mindestgrößen und beide Qualitätsschwellen erfüllen, bevor der Encoder
 aufgerufen wird. Der Qualitätswert wird einmal berechnet; effektiv gilt die
 höhere Grenze aus `min_embedding_quality` und `min_update_quality`.
-Neue, noch nicht zugeordnete Tracks benötigen nur die Kandidatenqualität und
-sammeln ihre Initialbeobachtungen unabhängig vom Updateintervall.
+Neue, noch nicht zugeordnete Tracks benötigen nur die Kandidatenqualität. Ihr
+eigener Abstand `initial_candidate_every_n_frames` ist vom Updateintervall
+bekannter Tracks unabhängig. Zusätzlich gelten zwei separat einstellbare
+Schärfegrenzen: `min_initial_blur_score` für jeden Initialkandidaten und die
+strengere Grenze `min_border_blur_score`, wenn die Bounding-Box einen Bildrand
+berührt. Die Standardwerte sind 0,40 und 0,45. Abgelehnte Bilder füllen den
+Initialpuffer nicht; der unbekannte Track wartet weiter auf bessere Crops.
+
+Vor der Cropqualität greift eine separate Überlappungssperre. Für jedes Paar
+erkannter Personen wird die Schnittfläche relativ zur kleineren Bounding-Box
+berechnet. Liegt sie standardmäßig über `max_person_overlap_ratio = 0,15`,
+werden beide Ausschnitte weder codiert noch zur Profilanlage oder zum Update
+verwendet. Danach bleibt der Track standardmäßig weitere
+`overlap_cooldown_frames = 10` Frames gesperrt. Ein noch nicht zugeordneter
+Track verliert dabei seine zuvor gesammelten Initialcrops, damit Beobachtungen
+vor und nach einer möglichen Trackverwechslung nicht vermischt werden. Der
+Frame-Export weist diese Fälle als `overlapping_person` beziehungsweise
+`overlap_cooldown` aus und enthält `person_overlap_ratio`.
+
 Das Embedding eines für ein Update zugelassenen Crops wird anschließend
 mit dem **bisherigen** Personenprofil verglichen:
 
@@ -74,7 +93,7 @@ p_neu = normalize(S_neu / W_neu)
 ```
 
 Ein neuer Track, der ein vorhandenes Profil wiederfindet, ergänzt entsprechend
-die vollständige Drei-Crop-Summe, ebenfalls nach der Ähnlichkeitsprüfung.
+die vollständige Fünf-Crop-Summe, ebenfalls nach der Ähnlichkeitsprüfung.
 Die Aktualisierung bleibt hinter `ProfileUpdater`; Speicher enthält keine Vektorarithmetik.
 
 Die Summe wird mit Float64-Präzision gespeichert. Eine nachträgliche Änderung

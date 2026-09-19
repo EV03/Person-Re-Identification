@@ -92,6 +92,28 @@ def crop_size_score(crop: np.ndarray | None, min_width: int, min_height: int) ->
     return float(min(width_score, height_score))
 
 
+def person_bbox_overlap_ratio(
+    first: tuple[int, int, int, int],
+    second: tuple[int, int, int, int],
+) -> float:
+    """Return intersection area relative to the smaller person box.
+
+    Using the smaller box instead of union area catches cases where one person
+    substantially occludes another even if their boxes differ greatly in size.
+    """
+    first_x1, first_y1, first_x2, first_y2 = first
+    second_x1, second_y1, second_x2, second_y2 = second
+    intersection_width = max(0, min(first_x2, second_x2) - max(first_x1, second_x1))
+    intersection_height = max(0, min(first_y2, second_y2) - max(first_y1, second_y1))
+    intersection_area = intersection_width * intersection_height
+    first_area = max(0, first_x2 - first_x1) * max(0, first_y2 - first_y1)
+    second_area = max(0, second_x2 - second_x1) * max(0, second_y2 - second_y1)
+    smaller_area = min(first_area, second_area)
+    if smaller_area <= 0:
+        return 0.0
+    return float(np.clip(intersection_area / smaller_area, 0.0, 1.0))
+
+
 def edge_cutoff_score(bbox_xyxy: tuple[int, int, int, int], frame_shape: tuple[int, ...], margin: int = 3) -> float:
     """Estimate whether the person box touches the frame border.
 

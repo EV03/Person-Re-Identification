@@ -42,10 +42,12 @@ def run_unit(sources: list[Path], config: PipelineConfig, *, root: Path | None =
     paths = create_unit_paths(root=root, base_paths=base_paths, mode_id=config.mode_id)
     manifest_path = paths.output_dir.parent / "experiment.json"
     paths = paths_for_encoder(paths, config)
+    experiment_root = manifest_path.parent.resolve()
     manifest = {
-        "schema_version": 1, "status": "running", "started_at": utc_now_iso(),
+        "schema_version": 2, "status": "running", "started_at": utc_now_iso(),
         "configuration": asdict(config), "sources": [file_reference(source) for source in sources],
         "database": str(paths.db_path), "database_initial_state": "new, empty",
+        "database_relative_to_experiment": paths.db_path.resolve().relative_to(experiment_root).as_posix(),
         "profile_policy": "Shared across sources in this unit only; fresh tracker per source.",
         "runs": [],
     }
@@ -61,7 +63,9 @@ def run_unit(sources: list[Path], config: PipelineConfig, *, root: Path | None =
                 pipeline = pipeline_factory(config=config, paths=paths)
                 result = pipeline.process(str(source))
                 entry.update(status="completed", run_id=result.run_id, manifest=str(result.manifest_path),
-                             predictions=str(result.predictions_path), processed_frames=result.processed_frames)
+                             predictions=str(result.predictions_path), processed_frames=result.processed_frames,
+                             manifest_relative_to_experiment=result.manifest_path.resolve().relative_to(experiment_root).as_posix(),
+                             predictions_relative_to_experiment=result.predictions_path.resolve().relative_to(experiment_root).as_posix())
             except BaseException:
                 entry.update(status="failed", manifest=str(getattr(pipeline, "last_manifest_path", "unavailable")))
                 raise
@@ -72,5 +76,8 @@ def run_unit(sources: list[Path], config: PipelineConfig, *, root: Path | None =
         raise
     finally:
         manifest["finished_at"] = utc_now_iso()
+        if paths.db_path.is_file():
+            manifest["database_after"] = file_reference(paths.db_path)
+            manifest["database_after"]["relative_to_experiment"] = paths.db_path.resolve().relative_to(experiment_root).as_posix()
         atomic_json(manifest_path, manifest)
     return manifest_path

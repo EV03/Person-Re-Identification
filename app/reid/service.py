@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from app.reid.repository import EmbeddingBatch, ProfileMatcher, ProfileObservation, ProfileRepository, ProfileUpdateDecision, ProfileUpdater
+from app.reid.repository import EmbeddingBatch, ProfileMatcher, ProfileObservation, ProfileRepository, ProfileSearchDecision, ProfileUpdateDecision, ProfileUpdater
 from app.reid.operations import CosineProfileMatcher, WeightedMeanProfileUpdater
 from app.reid.embeddings import checked_embedding, cosine_similarity
 from app.storage.models import MatchResult, Payload, PersonRecord
@@ -43,7 +43,37 @@ class ProfileService:
 
     def search(self, embedding: np.ndarray, threshold: float,
                exclude_person_ids: set[str] | None = None) -> MatchResult | None:
-        return self.matcher.match(checked_embedding(embedding), self.repository.iter_profiles(), threshold, exclude_person_ids or set())
+        return self.search_with_diagnostics(embedding, threshold, exclude_person_ids).match
+
+    def search_with_diagnostics(self, embedding: np.ndarray, threshold: float,
+                                exclude_person_ids: set[str] | None = None) -> ProfileSearchDecision:
+        query = checked_embedding(embedding)
+        excluded = exclude_person_ids or set()
+        profiles = list(self.repository.iter_profiles())
+        evaluate = getattr(self.matcher, "evaluate", None)
+        if callable(evaluate):
+            return evaluate(query, profiles, threshold, excluded)
+
+        # Custom matchers written against the original small interface remain
+        # supported. Their internal rejected score is unknowable, but the run
+        # still records why no ordinary candidate was available.
+        match = self.matcher.match(query, profiles, threshold, excluded)
+        eligible = sum(
+            profile.person_id not in excluded and profile.embedding.shape == query.shape
+            for profile in profiles
+        )
+        if match is not None:
+            return ProfileSearchDecision(
+                match, match.person_id, float(match.score), "matched_existing_profile",
+                eligible, tuple(sorted(excluded)),
+            )
+        if not profiles:
+            reason = "empty_database"
+        elif eligible == 0:
+            reason = "no_eligible_profile"
+        else:
+            reason = "matcher_rejected"
+        return ProfileSearchDecision(None, None, None, reason, eligible, tuple(sorted(excluded)))
 
     def create_person_id(self) -> str:
         return self.repository.create_person_id()

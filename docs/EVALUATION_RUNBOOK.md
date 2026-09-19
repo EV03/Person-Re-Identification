@@ -46,7 +46,8 @@ auf beide Mengen verteilen. Auch Pilotversuche mit geänderten Parametern bekomm
 jeweils eine frische Versuchsdatenbank, keine bereits optimierten Profile.
 
 Konstant lassen: YOLOv8n, ByteTrack samt YAML, Detektionskonfidenz 0,35,
-Eingangsgröße 640, drei Initialbeobachtungen, Updateintervall fünf Frames,
+Eingangsgröße 640, fünf Initialbeobachtungen im Abstand von drei Frames,
+Updateintervall zehn Frames,
 Mindestcropgröße 30 × 80 Pixel, Padding 0,05, Qualitätsformel und Gewichtung.
 Das sind Rahmenbedingungen, keine als optimal nachgewiesenen Werte.
 
@@ -91,7 +92,8 @@ In der UI die ausgewählte OSNet-Konfiguration als `eval_b0` speichern. Jeweils
 **dieses gespeicherte B0 laden**, ändern und als neues Preset speichern:
 
 - `eval_a1`: Farbhistogramm wählen und dessen beide kalibrierten Ähnlichkeitswerte setzen.
-- `eval_a2`: nur `min_embedding_quality` und `min_update_quality` auf 0 setzen.
+- `eval_a2`: `min_embedding_quality`, `min_initial_blur_score`,
+  `min_border_blur_score` und `min_update_quality` auf 0 setzen.
 - `eval_a3`: nur `min_update_similarity` auf -1 setzen.
 
 A1 vergleicht zwei kalibrierte Encoder-Konfigurationen, nicht nur einen isolierten

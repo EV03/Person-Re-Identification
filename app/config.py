@@ -71,15 +71,21 @@ class PipelineSettings:
     match_threshold: float = float(os.getenv("REID_DEFAULT_THRESHOLD", "0.82"))
     detection_confidence: float = 0.35
     image_size: int = 640
-    reid_every_n_frames: int = 5
-    min_good_frames_before_reid: int = 3
+    reid_every_n_frames: int = 10
+    min_good_frames_before_reid: int = 5
+    initial_candidate_every_n_frames: int = 3
     min_embedding_quality: float = 0.55
+    min_initial_blur_score: float = 0.40
+    min_border_blur_score: float = 0.45
     min_update_quality: float = 0.65
     min_update_similarity: float = 0.82
     max_frames: int = 500
     min_crop_height: int = 80
     min_crop_width: int = 30
     crop_padding: float = 0.05
+    max_person_overlap_ratio: float = 0.15
+    overlap_cooldown_frames: int = 10
+    track_state_ttl_frames: int = 30
     device: str = "auto"
     draw_debug: bool = True
     live_preview_every_n_frames: int = 10
@@ -94,6 +100,19 @@ class PipelineSettings:
             value = getattr(self, name)
             if not math.isfinite(value) or not -1 <= value <= 1:
                 raise ValueError(f"{name} must be finite and between -1 and 1.")
+        if not math.isfinite(self.max_person_overlap_ratio) or not 0 <= self.max_person_overlap_ratio <= 1:
+            raise ValueError("max_person_overlap_ratio must be finite and between 0 and 1.")
+        for name in ("min_initial_blur_score", "min_border_blur_score"):
+            value = getattr(self, name)
+            if not math.isfinite(value) or not 0 <= value <= 1:
+                raise ValueError(f"{name} must be finite and between 0 and 1.")
+        if self.overlap_cooldown_frames < 0:
+            raise ValueError("overlap_cooldown_frames must be greater than or equal to zero.")
+        if self.track_state_ttl_frames < 1:
+            raise ValueError("track_state_ttl_frames must be greater than or equal to one.")
+        for name in ("reid_every_n_frames", "min_good_frames_before_reid", "initial_candidate_every_n_frames"):
+            if getattr(self, name) < 1:
+                raise ValueError(f"{name} must be greater than or equal to one.")
 
 
 @dataclass(frozen=True)

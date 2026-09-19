@@ -83,9 +83,11 @@ Built-in-IDs dürfen nicht durch gespeicherte Presets überschrieben werden.
 
 Die UI verwendet nur einen Parametereditor. `app/ui/config_editor.py` definiert
 die Laufzeitfelder aus `PipelineConfig`, vergleicht aktuelle Werte mit dem geladenen
-Preset und überträgt dieselben Werte an Pipeline und neues Preset. Metadaten wie
-Name und Beschreibung werden beim Speichern separat vergeben. Ein geänderter
-Laufname erhält den Zusatz "(geändert)"; das Ausgangspreset bleibt unverändert.
+Preset und überträgt dieselben Werte an Pipeline und gespeichertes Preset.
+Metadaten wie Name und Beschreibung werden beim Speichern separat vergeben. Ein
+geänderter Laufname erhält den Zusatz "(geändert)". Eigene Presets können über
+eine getrennte UI-Aktion unter derselben ID aktualisiert werden; eingebaute
+Presets bleiben unveränderlich.
 
 `streamlit_app.py` hält Editorwerte in expliziten `pipeline_*`-Session-Schlüsseln.
 Sie werden nur beim Presetwechsel oder beim expliziten Zurücksetzen neu geladen,

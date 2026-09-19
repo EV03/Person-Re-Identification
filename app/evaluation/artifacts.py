@@ -15,6 +15,7 @@ import os
 import platform
 import subprocess
 import tempfile
+from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -117,13 +118,31 @@ class RunArtifacts:
         self.predictions_path = self.root / "frames.jsonl"
         self.tracking_path = self.root / "tracking_mot.txt"
         self.processed_frames = 0
+        artifact_paths = [paths.db_path.resolve().parent, paths.snapshot_dir.resolve(), paths.output_dir.resolve()]
+        self.artifact_root = Path(os.path.commonpath([str(path) for path in artifact_paths]))
+        self._state_counts: Counter[str] = Counter()
+        self._match_reason_counts: Counter[str] = Counter()
+        self._unique_track_ids: set[int] = set()
+        self._unique_person_ids: set[str] = set()
+        self._detection_count = 0
+        self._frames_without_detections = 0
+        self._runtime_summary: dict[str, Any] = {}
         self.metadata: dict[str, Any] = {
-            "schema_version": 1, "run_id": run_id, "status": "running", "started_at": utc_now_iso(),
+            "schema_version": 2, "run_id": run_id, "status": "running", "started_at": utc_now_iso(),
             "configuration": asdict(config), "source": source,
             "input": file_reference(resolve_project_file(source)) if Path(source).is_file() or resolve_project_file(source).is_file()
             else {"label": source, "sha256": None, "note": "Live/non-file source; content cannot be hashed."},
-            "database_before": file_reference(paths.db_path),
+            "database_before": self._artifact_reference(paths.db_path),
             "paths": {name: str(value) for name, value in asdict(paths).items()},
+            "artifact_layout": {
+                "root_from_manifest": Path(os.path.relpath(self.artifact_root, self.root)).as_posix(),
+                "paths_relative_to_root": {
+                    "db_path": self.relative_path(paths.db_path),
+                    "snapshot_dir": self.relative_path(paths.snapshot_dir),
+                    "output_dir": self.relative_path(paths.output_dir),
+                },
+                "note": "Resolve portable paths against artifact_root; absolute paths are retained for the original machine.",
+            },
             "code": code_reference(), "models": model_references(config),
             "environment": {"python": platform.python_version(), "os": platform.platform(),
                             "machine": platform.machine(), "processor": platform.processor(),
@@ -131,6 +150,8 @@ class RunArtifacts:
                                          for dist in importlib.metadata.distributions() if dist.metadata["Name"]}},
             "video": {}, "timings": {}, "processed_frames": 0,
             "exports": {"frames_jsonl": str(self.predictions_path), "tracking_mot": str(self.tracking_path),
+                        "frames_jsonl_relative_to_manifest": self.predictions_path.name,
+                        "tracking_mot_relative_to_manifest": self.tracking_path.name,
                         "frame_indices": "1-based", "timestamps": "(frame_index-1)/fps; nominal video time",
                         "tracking_mot_note": "Untracked detections are only in frames.jsonl; no retrospective person-ID backfill."},
         }
@@ -141,6 +162,18 @@ class RunArtifacts:
         except BaseException:
             self._frames.close()
             raise
+
+    def relative_path(self, path: Path) -> str:
+        """Return a portable path relative to the self-contained artifact root."""
+        return Path(os.path.relpath(Path(path).resolve(), self.artifact_root)).as_posix()
+
+    def _artifact_reference(self, path: Path) -> dict[str, Any]:
+        reference = file_reference(path)
+        reference["relative_to_artifact_root"] = self.relative_path(path)
+        return reference
+
+    def add_runtime_summary(self, **values: Any) -> None:
+        self._runtime_summary.update(values)
 
     def set_video(self, *, fps: float, frame_count: int | None, width: int, height: int,
                   fps_fallback: bool, capture_duration_limit_seconds: float | None = None) -> None:
@@ -156,11 +189,22 @@ class RunArtifacts:
         self._frames.write(json.dumps({"run_id": self.metadata["run_id"], "frame_index": frame_index,
                                        "timestamp_seconds": (frame_index - 1) / fps,
                                        "detections": predictions}, allow_nan=False) + "\n")
+        self._detection_count += len(predictions)
+        if not predictions:
+            self._frames_without_detections += 1
         for prediction in predictions:
+            self._state_counts[str(prediction["state"])] += 1
+            match_reason = prediction.get("match_reason")
+            if match_reason is not None:
+                self._match_reason_counts[str(match_reason)] += 1
             track_id = prediction["track_id"]
             if track_id is not None:
+                self._unique_track_ids.add(int(track_id))
                 x1, y1, x2, y2 = prediction["bbox_xyxy"]
                 self._tracking.write(f"{frame_index},{track_id},{x1},{y1},{x2-x1},{y2-y1},{prediction['confidence']},-1,-1,-1\n")
+            person_id = prediction.get("person_id")
+            if person_id is not None:
+                self._unique_person_ids.add(str(person_id))
         self.processed_frames = frame_index
         self._frames.flush()
         self._tracking.flush()
@@ -185,7 +229,36 @@ class RunArtifacts:
             "real_time_factor": processing_seconds / duration if duration else None,
             "scope": "Processing includes capture, tracking, encoding, persistence, video/frame export, callbacks and resource closing; excludes model loading and initial artifact/hash setup.",
         }
-        self.metadata["exports"]["sha256"] = {
+        export_hashes = {
             "frames_jsonl": sha256_file(self.predictions_path), "tracking_mot": sha256_file(self.tracking_path)
         }
+        annotated_video = self.metadata["exports"].get("annotated_video")
+        if annotated_video and Path(annotated_video).is_file():
+            export_hashes["annotated_video"] = sha256_file(Path(annotated_video))
+        self.metadata["exports"]["sha256"] = export_hashes
+        self.metadata["summary"] = {
+            "detections": self._detection_count,
+            "frames_without_detections": self._frames_without_detections,
+            "unique_tracks": len(self._unique_track_ids),
+            "unique_assigned_person_ids": len(self._unique_person_ids),
+            "created_identities": self._state_counts["created_identity"],
+            "matched_identities": self._state_counts["matched_identity"],
+            "matched_identity_update_rejected": self._state_counts["matched_identity_update_rejected"],
+            "accepted_profile_updates": self._state_counts["profile_update"],
+            "rejected_profile_updates": self._state_counts["profile_update_rejected"],
+            "blocked_by_overlap": self._state_counts["overlapping_person"],
+            "blocked_by_overlap_cooldown": self._state_counts["overlap_cooldown"],
+            "below_candidate_quality": self._state_counts["below_candidate_quality"],
+            "below_initial_blur": self._state_counts["below_initial_blur"],
+            "below_border_blur": self._state_counts["below_border_blur"],
+            "below_update_quality": self._state_counts["below_update_quality"],
+            "invalid_crops": self._state_counts["invalid_crop"],
+            "state_counts": dict(sorted(self._state_counts.items())),
+            "match_reason_counts": dict(sorted(self._match_reason_counts.items())),
+            **self._runtime_summary,
+        }
+        atomic_json(self.manifest_path, self.metadata)
+
+    def record_database_after(self, path: Path) -> None:
+        self.metadata["database_after"] = self._artifact_reference(path)
         atomic_json(self.manifest_path, self.metadata)

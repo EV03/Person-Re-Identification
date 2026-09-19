@@ -96,7 +96,7 @@ Anschließend ermittelt das System Schärfe, Helligkeit, Grö{\ss}e, Seitenverh�
 Gewichte aus dem Training auf MSMT17 stammen~\cite{torchreid-modelzoo}. Eigenes Training oder 
 Fine-Tuning findet nicht statt.
 
-Sobald drei beliebige Ausschnitte einer Spur die Qualitätsschwelle erfüllen, werden ihre normalisierten Embedding $z_i$ qualitätsgewichtet zusammengeführt:
+Sobald fünf Ausschnitte einer Spur die Qualitätsschwelle erfüllen, werden ihre normalisierten Embeddings $z_i$ qualitätsgewichtet zusammengeführt. Zwischen zwei angenommenen Ausschnitten liegen mindestens drei Frames, damit nicht nur nahezu identische Nachbarbilder in das Initialprofil eingehen:
 \begin{equation}
 \bar z=\operatorname{norm}\left(\frac{\sum_i w_i z_i}{\sum_i w_i}\right),
 \qquad w_i=\max(Q_i,0{,}05).
@@ -123,7 +123,7 @@ selbst aber unverändert.
 \label{sec:profile-update}
 
 Sobald eine Spur eine Personenkennung besitzt, wird die Suche nach einem Profil abgeschlossen. Standardmäßig
-wird nur alle fünf Frames ein Profilupdate mit dem Personenausschnitt der Spur aus genau diesem Frame versucht. 
+wird nur alle zehn Frames ein Profilupdate mit dem Personenausschnitt der Spur aus genau diesem Frame versucht.
 
 Für ein Update muss der Ausschnitt die geometrischen Mindestanforderungen. Sein Qualitätswert $Q$ wird dabei wie in Abschnitt~\ref{sec:new-profile} berechnet, muss aber die Updatequalitätsschwelle erreichen, die in der Referenzkonfiguration höher liegt als die Kandidatenschwelle.
 Ebenfalls muss sein Embedding laut Gleichung~\ref{eq:cosine} mindestens die Update-Ähnlichkeitsschwelle zum aktuell zugeordneten Profil erreichen.
@@ -139,7 +139,7 @@ Embeddingsumme $S$ und die Gewichtssumme $W$. Für ein neues Embedding $z$ mit G
 S_{\mathrm{neu}}=S+wz,\qquad W_{\mathrm{neu}}=W+w,\qquad 
 p_{\mathrm{neu}}=\operatorname{norm}(S_{\mathrm{neu}}/W_{\mathrm{neu}}).
 \end{equation}
-Die drei Initialbeobachtungen bleiben damit erhalten. Jedes weitere Update ergänzt sie, statt sie zu ersetzen.
+Die fünf Initialbeobachtungen bleiben damit erhalten. Jedes weitere Update ergänzt sie, statt sie zu ersetzen.
 Die genaue Herleitung steht in Anhang~\ref{app:profile-details}.
 
 \subsection{Profilbestände und Modellwechsel}
@@ -209,7 +209,7 @@ Parameter & Wert \\
 Detektionsmodell / Tracker & YOLOv8n / ByteTrack \\
 Detektionskonfidenz & 0,35 \\
 Eingangsgrö{\ss}e für YOLO & 640 Pixel \\
-Updateintervall / Initialbeobachtungen & 5 Frames / 3 \\
+Updateintervall / Initialbeobachtungen / Kandidatenabstand & 10 Frames / 5 / 3 Frames \\
 Minimale Cropgrö{\ss}e & $30\times80$ Pixel \\
 Crop-Padding & 0,05 \\
 \bottomrule

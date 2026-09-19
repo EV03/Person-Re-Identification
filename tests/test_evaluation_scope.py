@@ -37,7 +37,10 @@ class EvaluationPresetTests(unittest.TestCase):
         base = asdict(modes["default"].to_pipeline_config())
         for name, expected in (
             ("colorhist", {"encoder_backend"}),
-            ("no_quality_thresholds", {"min_embedding_quality", "min_update_quality"}),
+            ("no_quality_thresholds", {
+                "min_embedding_quality", "min_initial_blur_score",
+                "min_border_blur_score", "min_update_quality",
+            }),
             ("no_update_similarity", {"min_update_similarity"}),
         ):
             with self.subTest(mode=name):
@@ -46,6 +49,8 @@ class EvaluationPresetTests(unittest.TestCase):
                 self.assertEqual(changed - {"mode_id", "mode_name"}, expected)
         self.assertEqual(modes["colorhist"].encoder_backend, "colorhist")
         self.assertEqual(modes["no_quality_thresholds"].min_embedding_quality, 0)
+        self.assertEqual(modes["no_quality_thresholds"].min_initial_blur_score, 0)
+        self.assertEqual(modes["no_quality_thresholds"].min_border_blur_score, 0)
         self.assertEqual(modes["no_quality_thresholds"].min_update_quality, 0)
         self.assertEqual(modes["no_update_similarity"].min_update_similarity, -1)
 
@@ -174,7 +179,8 @@ class ReIdPipelineScopeTests(unittest.TestCase):
                 encoder_backend="colorhist", max_frames=0, draw_debug=draw,
                 min_crop_width=1, min_crop_height=1, crop_padding=0,
                 min_good_frames_before_reid=1, min_embedding_quality=0, min_update_quality=0,
-                reid_every_n_frames=1,
+                min_initial_blur_score=0, min_border_blur_score=0,
+                reid_every_n_frames=1, max_person_overlap_ratio=1,
             )
             capture = FakeCapture(len(detections))
             capture.frames = [np.full((48, 64, 3), 128, dtype=np.uint8) for _ in detections]

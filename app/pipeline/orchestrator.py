@@ -35,6 +35,7 @@ from app.utils.image_utils import (
     draw_detection,
     is_valid_crop,
     normalize_vector,
+    person_bbox_overlap_ratio,
     save_crop,
 )
 
@@ -277,6 +278,7 @@ class PersonReIdPipeline:
                                  model_load_seconds=load_seconds, total_seconds=time.perf_counter() - total_started)
                 self.store.finish_analysis_run(run_id, status=status, processed_frames=artifacts.processed_frames,
                                                error=str(final_error) if final_error else None)
+                artifacts.record_database_after(self.paths.db_path)
             except Exception as exc:
                 # A DB finalization failure must not leave a success manifest.
                 if error is None:
@@ -335,6 +337,7 @@ class PersonReIdPipeline:
         mode_label = safe_source_name(self.config.mode_id)
         output_path = self.paths.output_dir / f"{mode_label}_{run_id}_{source_label}.mp4"
         artifacts.metadata["exports"]["annotated_video"] = str(output_path)
+        artifacts.metadata["exports"]["annotated_video_relative_to_artifact_root"] = artifacts.relative_path(output_path)
         writer = cv2.VideoWriter(
             str(output_path),
             cv2.VideoWriter_fourcc(*"mp4v"),
@@ -363,10 +366,15 @@ class PersonReIdPipeline:
         track_to_person: dict[int, str] = {}
         track_to_last_score: dict[int, float | None] = {}
         track_candidates: dict[int, list[TrackEmbeddingCandidate]] = {}
+        track_candidate_last_frame: dict[int, int] = {}
+        track_last_seen_frame: dict[int, int] = {}
+        overlap_cooldown_until: dict[int, int] = {}
         created_persons = 0
         matched_events = 0
         frame_index = 0
         skipped_low_quality = 0
+        skipped_overlap = 0
+        expired_track_states = 0
         waiting_for_good_frames = 0
         warnings: list[str] = []
 
@@ -385,6 +393,40 @@ class PersonReIdPipeline:
             frame_index += 1
 
             detections = self.tracker.track_frame(frame)
+            active_track_ids = {
+                detection.track_id for detection in detections if detection.track_id is not None
+            }
+            expired_track_ids = [
+                track_id for track_id, last_seen in track_last_seen_frame.items()
+                if frame_index - last_seen > self.config.track_state_ttl_frames
+            ]
+            for track_id in expired_track_ids:
+                track_to_person.pop(track_id, None)
+                track_to_last_score.pop(track_id, None)
+                track_candidates.pop(track_id, None)
+                track_candidate_last_frame.pop(track_id, None)
+                track_last_seen_frame.pop(track_id, None)
+                overlap_cooldown_until.pop(track_id, None)
+                expired_track_states += 1
+            for track_id in active_track_ids:
+                track_last_seen_frame[track_id] = frame_index
+
+            overlap_by_detection: dict[int, float] = {index: 0.0 for index in range(len(detections))}
+            for first_index, first in enumerate(detections):
+                for second_index in range(first_index + 1, len(detections)):
+                    second = detections[second_index]
+                    if first.track_id is not None and first.track_id == second.track_id:
+                        continue
+                    overlap = person_bbox_overlap_ratio(first.bbox_xyxy, second.bbox_xyxy)
+                    overlap_by_detection[first_index] = max(overlap_by_detection[first_index], overlap)
+                    overlap_by_detection[second_index] = max(overlap_by_detection[second_index], overlap)
+                    if overlap > self.config.max_person_overlap_ratio:
+                        cooldown_until = frame_index + self.config.overlap_cooldown_frames
+                        for track_id in (first.track_id, second.track_id):
+                            if track_id is not None:
+                                overlap_cooldown_until[track_id] = max(
+                                    overlap_cooldown_until.get(track_id, 0), cooldown_until
+                                )
             frame_predictions: list[dict[str, object]] = []
             # Keep crops independent of boxes and labels drawn for other people.
             display_frame = frame.copy() if self.config.draw_debug else frame
@@ -395,15 +437,36 @@ class PersonReIdPipeline:
                 if detection.track_id in track_to_person
             }
 
-            for detection in detections:
+            for detection_index, detection in enumerate(detections):
                 person_id = track_to_person.get(detection.track_id)
                 score = track_to_last_score.get(detection.track_id)
+                person_overlap_ratio = overlap_by_detection[detection_index]
                 prediction: dict[str, object] = {
                     "bbox_xyxy": list(detection.bbox_xyxy), "confidence": float(detection.confidence),
                     "class_id": detection.class_id, "track_id": detection.track_id, "person_id": person_id,
                     "match_score": score, "state": "known_track" if person_id else "pending",
                     "quality_score": None, "decision_frame_index": None, "snapshot_frame_index": None,
                     "profile_update_accepted": None, "update_similarity": None, "profile_update_reason": None,
+                    "person_overlap_ratio": person_overlap_ratio,
+                    "overlap_cooldown_until_frame": overlap_cooldown_until.get(detection.track_id),
+                    "overlap_cooldown_remaining": max(
+                        0, overlap_cooldown_until.get(detection.track_id, frame_index) - frame_index
+                    ),
+                    "quality_details": None,
+                    "initial_candidate_count": (
+                        len(track_candidates.get(detection.track_id, []))
+                        if detection.track_id is not None and person_id is None else None
+                    ),
+                    "initial_candidate_required": (
+                        self.config.min_good_frames_before_reid
+                        if detection.track_id is not None and person_id is None else None
+                    ),
+                    "best_match_person_id": None,
+                    "best_match_score": None,
+                    "match_threshold": None,
+                    "match_reason": None,
+                    "eligible_profile_count": None,
+                    "excluded_person_ids": None,
                 }
                 frame_predictions.append(prediction)
                 if detection.track_id is None:
@@ -411,9 +474,38 @@ class PersonReIdPipeline:
                     if self.config.draw_debug:
                         draw_detection(display_frame, detection, None, None)
                     continue
-                should_reid = person_id is None or frame_index % max(1, self.config.reid_every_n_frames) == 0
+                currently_overlapping = person_overlap_ratio > self.config.max_person_overlap_ratio
+                in_overlap_cooldown = frame_index <= overlap_cooldown_until.get(detection.track_id, 0)
+                if person_id is None and currently_overlapping:
+                    # Do not combine pre-crossing and post-crossing crops if
+                    # the tracker changes identity during an overlap.
+                    track_candidates.pop(detection.track_id, None)
+                    track_candidate_last_frame.pop(detection.track_id, None)
+                    prediction["initial_candidate_count"] = 0
+
+                if person_id is None:
+                    last_candidate_frame = track_candidate_last_frame.get(detection.track_id)
+                    candidate_due = (
+                        last_candidate_frame is None
+                        or frame_index - last_candidate_frame >= self.config.initial_candidate_every_n_frames
+                    )
+                    if not candidate_due and not currently_overlapping and not in_overlap_cooldown:
+                        prediction["state"] = "waiting_for_candidate_interval"
+                        if self.config.draw_debug:
+                            draw_detection(display_frame, detection, person_id, score)
+                        continue
+                    should_reid = True
+                else:
+                    should_reid = frame_index % self.config.reid_every_n_frames == 0
 
                 if should_reid:
+                    if currently_overlapping or in_overlap_cooldown:
+                        prediction["state"] = "overlapping_person" if currently_overlapping else "overlap_cooldown"
+                        skipped_overlap += 1
+                        if self.config.draw_debug:
+                            draw_detection(display_frame, detection, person_id, score)
+                        continue
+
                     crop = crop_xyxy(frame, detection.bbox_xyxy, padding=self.config.crop_padding)
                     if not is_valid_crop(crop, self.config.min_crop_width, self.config.min_crop_height):
                         prediction["state"] = "invalid_crop"
@@ -436,10 +528,25 @@ class PersonReIdPipeline:
                         min_height=self.config.min_crop_height,
                     )
                     prediction["quality_score"] = quality_score
-                    # Known tracks must pass both quality gates before encoder inference.
+                    prediction["quality_details"] = {
+                        key: float(value) for key, value in quality_details.items()
+                    }
+                    # Unknown tracks use explicit sharpness gates so large or bright
+                    # crops cannot hide motion blur in the weighted total score.
                     quality_rejection_state = None
                     if quality_score < self.config.min_embedding_quality:
                         quality_rejection_state = "below_candidate_quality"
+                    elif (
+                        person_id is None
+                        and quality_details.get("blur", 1.0) < self.config.min_initial_blur_score
+                    ):
+                        quality_rejection_state = "below_initial_blur"
+                    elif (
+                        person_id is None
+                        and quality_details.get("edge_cutoff", 1.0) < 1.0
+                        and quality_details.get("blur", 1.0) < self.config.min_border_blur_score
+                    ):
+                        quality_rejection_state = "below_border_blur"
                     elif person_id is not None and quality_score < self.config.min_update_quality:
                         quality_rejection_state = "below_update_quality"
                     if quality_rejection_state is not None:
@@ -473,9 +580,11 @@ class PersonReIdPipeline:
                     if person_id is None:
                         candidates = track_candidates.setdefault(detection.track_id, [])
                         candidates.append(candidate)
+                        track_candidate_last_frame[detection.track_id] = frame_index
                         max_buffer_size = max(self.config.min_good_frames_before_reid * 2, 5)
                         if len(candidates) > max_buffer_size:
                             del candidates[0 : len(candidates) - max_buffer_size]
+                        prediction["initial_candidate_count"] = len(candidates)
 
                         if len(candidates) < self.config.min_good_frames_before_reid:
                             prediction["state"] = "waiting_for_initial_observations"
@@ -492,11 +601,36 @@ class PersonReIdPipeline:
                         combined_embedding = self._combined_embedding(candidates)
                         best_candidate = self._best_candidate(candidates)
                         quality_average = float(np.mean([item.quality_score for item in candidates]))
-                        match = self.profiles.search(
-                            combined_embedding,
-                            threshold=self.config.match_threshold,
-                            exclude_person_ids=used_person_ids_this_frame,
-                        )
+                        search_with_diagnostics = getattr(self.profiles, "search_with_diagnostics", None)
+                        if callable(search_with_diagnostics):
+                            search = search_with_diagnostics(
+                                combined_embedding,
+                                threshold=self.config.match_threshold,
+                                exclude_person_ids=used_person_ids_this_frame,
+                            )
+                            match = search.match
+                            search_payload = {
+                                "best_match_person_id": search.best_person_id,
+                                "best_match_score": search.best_score,
+                                "match_threshold": float(self.config.match_threshold),
+                                "match_reason": search.reason,
+                                "eligible_profile_count": search.eligible_profile_count,
+                                "excluded_person_ids": list(search.excluded_person_ids),
+                            }
+                        else:
+                            match = self.profiles.search(
+                                combined_embedding,
+                                threshold=self.config.match_threshold,
+                                exclude_person_ids=used_person_ids_this_frame,
+                            )
+                            search_payload = {
+                                "best_match_person_id": match.person_id if match is not None else None,
+                                "best_match_score": float(match.score) if match is not None else None,
+                                "match_threshold": float(self.config.match_threshold),
+                                "match_reason": "matched_existing_profile" if match is not None else "profile_manager_rejected",
+                                "eligible_profile_count": None,
+                                "excluded_person_ids": sorted(used_person_ids_this_frame),
+                            }
 
                         if match is None:
                             person_id = self.profiles.create_person_id()
@@ -514,6 +648,16 @@ class PersonReIdPipeline:
                             best_candidate.frame_index,
                             run_id=run_id,
                         )
+                        quality_payload = self._quality_payload(
+                            run_id=run_id,
+                            event_type="initial_buffer_match",
+                            candidate=best_candidate,
+                            good_frame_count=len(candidates),
+                            quality_average=quality_average,
+                            decision_frame_index=frame_index,
+                        )
+                        quality_payload.update(search_payload)
+                        quality_payload["snapshot_path_relative_to_artifact_root"] = artifacts.relative_path(snapshot_path)
                         decision = self.profiles.add_or_update_person(
                             person_id=person_id,
                             embedding=combined_embedding,
@@ -523,23 +667,18 @@ class PersonReIdPipeline:
                             bbox_xyxy=best_candidate.bbox_xyxy,
                             score=score,
                             snapshot_path=str(snapshot_path),
-                            payload=self._quality_payload(
-                                run_id=run_id,
-                                event_type="initial_buffer_match",
-                                candidate=best_candidate,
-                                good_frame_count=len(candidates),
-                                quality_average=quality_average,
-                                decision_frame_index=frame_index,
-                            ),
+                            payload=quality_payload,
                             batch=self._embedding_batch(candidates),
                         )
 
                         track_to_person[detection.track_id] = person_id
                         track_to_last_score[detection.track_id] = score
                         track_candidates[detection.track_id] = []
+                        track_candidate_last_frame.pop(detection.track_id, None)
                         prediction.update(person_id=person_id, match_score=score,
                                           state="created_identity" if match is None else "matched_identity",
                                           decision_frame_index=frame_index, snapshot_frame_index=best_candidate.frame_index)
+                        prediction.update(search_payload)
                         prediction.update(profile_update_accepted=decision.accepted,
                                           update_similarity=decision.similarity, profile_update_reason=decision.reason)
                         if not decision.accepted:
@@ -549,6 +688,14 @@ class PersonReIdPipeline:
                     # the profile service still checks embedding similarity.
                     else:
                         snapshot_path = save_crop(candidate.crop, self.paths.snapshot_dir, person_id, frame_index, run_id=run_id)
+                        quality_payload = self._quality_payload(
+                            run_id=run_id,
+                            event_type="quality_gated_update",
+                            candidate=candidate,
+                            good_frame_count=1,
+                            decision_frame_index=frame_index,
+                        )
+                        quality_payload["snapshot_path_relative_to_artifact_root"] = artifacts.relative_path(snapshot_path)
                         decision = self.profiles.add_or_update_person(
                             person_id=person_id,
                             embedding=normalize_vector(candidate.embedding),
@@ -558,13 +705,7 @@ class PersonReIdPipeline:
                             bbox_xyxy=detection.bbox_xyxy,
                             score=score,
                             snapshot_path=str(snapshot_path),
-                            payload=self._quality_payload(
-                                run_id=run_id,
-                                event_type="quality_gated_update",
-                                candidate=candidate,
-                                good_frame_count=1,
-                                decision_frame_index=frame_index,
-                            ),
+                            payload=quality_payload,
                         )
                         prediction.update(state="profile_update" if decision.accepted else "profile_update_rejected",
                                           snapshot_frame_index=frame_index, profile_update_accepted=decision.accepted,
@@ -611,6 +752,11 @@ class PersonReIdPipeline:
 
         if skipped_low_quality > 0:
             warnings.append(f"Skipped low-quality ReID crops: {skipped_low_quality}")
+        if skipped_overlap > 0:
+            warnings.append(f"Skipped ReID crops due to person overlap or cooldown: {skipped_overlap}")
+        if expired_track_states > 0:
+            warnings.append(f"Expired run-local track states after absence: {expired_track_states}")
+        artifacts.add_runtime_summary(expired_track_states=expired_track_states)
         if waiting_for_good_frames > 0:
             warnings.append(
                 "Some tracks were not assigned immediately because the pipeline waited for enough good frames."

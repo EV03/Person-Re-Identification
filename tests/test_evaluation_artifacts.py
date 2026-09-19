@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
 import unittest
 from dataclasses import replace
@@ -27,7 +28,9 @@ def config_for_test():
     return PipelineConfig(encoder_backend="colorhist", max_frames=0, draw_debug=False,
                           min_crop_width=1, min_crop_height=1, crop_padding=0,
                           min_good_frames_before_reid=3, min_embedding_quality=0,
-                          min_update_quality=0, reid_every_n_frames=1)
+                          min_initial_blur_score=0, min_border_blur_score=0,
+                          min_update_quality=0, reid_every_n_frames=1,
+                          initial_candidate_every_n_frames=1)
 
 
 def execute_pipeline(paths, detections, config=None, source="fixture.mp4"):
@@ -77,11 +80,22 @@ class EvaluationArtifactTests(unittest.TestCase):
             decision = frames[3]["detections"][0]
             self.assertEqual(decision["decision_frame_index"], 4)
             self.assertEqual(decision["snapshot_frame_index"], 2)
+            self.assertEqual(decision["initial_candidate_count"], 3)
+            self.assertEqual(decision["initial_candidate_required"], 3)
+            self.assertEqual(decision["match_reason"], "empty_database")
+            self.assertEqual(decision["eligible_profile_count"], 0)
+            self.assertIn("blur", decision["quality_details"])
             event = pipeline.store.events_dataframe().iloc[0]
             self.assertEqual(event["frame_index"], 4)
+            self.assertEqual(event["match_reason"], "empty_database")
+            self.assertEqual(event["match_threshold"], config_for_test().match_threshold)
+            self.assertTrue(event["profile_update_accepted"])
+            self.assertIsNotNone(event["quality_blur"])
             payload = json.loads(event["payload_json"])
             self.assertEqual(payload["snapshot_frame_index"], 2)
             self.assertEqual(payload["decision_frame_index"], 4)
+            self.assertEqual(payload["match_reason"], "empty_database")
+            self.assertIn("snapshot_path_relative_to_artifact_root", payload)
             self.assertIn(result.run_id, event["snapshot_path"])
             self.assertTrue(Path(event["snapshot_path"]).is_file())
             mot = result.tracking_predictions_path.read_text().splitlines()
@@ -94,10 +108,63 @@ class EvaluationArtifactTests(unittest.TestCase):
             self.assertIsNone(manifest["models"]["encoder"]["checkpoint"])
             self.assertIn("source_tree_sha256", manifest["code"])
             self.assertGreater(manifest["timings"]["processing_seconds"], 0)
+            self.assertEqual(manifest["summary"]["created_identities"], 1)
+            self.assertEqual(manifest["summary"]["detections"], 4)
+            self.assertEqual(manifest["summary"]["frames_without_detections"], 1)
+            self.assertEqual(manifest["summary"]["match_reason_counts"], {"empty_database": 1})
+            self.assertEqual(manifest["database_after"]["sha256"], sha256_file(pipeline.paths.db_path))
+            artifact_root = result.manifest_path.parent / manifest["artifact_layout"]["root_from_manifest"]
+            portable_db = artifact_root / manifest["database_after"]["relative_to_artifact_root"]
+            self.assertTrue(portable_db.resolve().is_file())
             run = pipeline.store.analysis_runs_dataframe().iloc[0]
             self.assertEqual(run["status"], "completed")
             self.assertEqual(run["processed_frames"], 5)
             self.assertTrue(capture.released and writer.released)
+
+    def test_expired_track_state_requires_a_new_profile_search(self):
+        box = Detection(1, (2, 5, 25, 44), .9)
+        config = replace(
+            config_for_test(), min_good_frames_before_reid=1,
+            reid_every_n_frames=100, track_state_ttl_frames=1,
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            pipeline, result, _, _ = execute_pipeline(
+                paths_for(Path(folder)), [[box], [], [box]], config=config,
+            )
+            frames = [json.loads(line) for line in result.predictions_path.read_text().splitlines()]
+            manifest = json.loads(result.manifest_path.read_text())
+
+        self.assertEqual(frames[0]["detections"][0]["state"], "created_identity")
+        self.assertEqual(frames[2]["detections"][0]["state"], "matched_identity")
+        self.assertEqual(frames[2]["detections"][0]["match_reason"], "matched_existing_profile")
+        self.assertEqual(result.created_persons, 1)
+        self.assertEqual(result.matched_events, 1)
+        self.assertEqual(manifest["summary"]["expired_track_states"], 1)
+
+    def test_portable_artifact_paths_survive_moving_the_experiment_folder(self):
+        box = Detection(1, (2, 5, 25, 44), .9)
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            original = base / "original"
+            pipeline, result, _, _ = execute_pipeline(
+                paths_for(original), [[box]],
+                config=replace(config_for_test(), min_good_frames_before_reid=1),
+            )
+            manifest_relative = result.manifest_path.relative_to(original)
+            moved = base / "moved"
+            shutil.move(str(original), str(moved))
+
+            moved_manifest_path = moved / manifest_relative
+            manifest = json.loads(moved_manifest_path.read_text())
+            artifact_root = (
+                moved_manifest_path.parent / manifest["artifact_layout"]["root_from_manifest"]
+            ).resolve()
+            portable_db = artifact_root / manifest["database_after"]["relative_to_artifact_root"]
+            portable_snapshots = artifact_root / manifest["artifact_layout"]["paths_relative_to_root"]["snapshot_dir"]
+
+            self.assertTrue(portable_db.is_file())
+            self.assertEqual(len(list(portable_snapshots.rglob("*.jpg"))), 1)
+            self.assertFalse(Path(manifest["database_after"]["path"]).exists())
 
     def test_untracked_boxes_never_build_a_person_profile(self):
         with tempfile.TemporaryDirectory() as folder:
