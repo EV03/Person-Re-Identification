@@ -1,8 +1,8 @@
-"""Metrics for controlled single-person videos from ``Details_Tracking``.
+"""Identity diagnostics for controlled single- and multi-person videos.
 
-These metrics deliberately do not claim multi-person IDF1/MOTA.  They are for
-videos known to contain one real target and make fragmentation and continuity
-visible without dense bounding-box ground truth.
+The single-person metrics make fragmentation and continuity visible for one
+known target. Multi-person scenario diagnostics deliberately do not claim
+IDF1/MOTA without dense bounding-box ground truth.
 """
 
 from __future__ import annotations
@@ -40,6 +40,64 @@ def _switch_count(events: list[dict[str, Any]], key: str) -> int:
 
 def _ratio(count: int, total: int) -> float | None:
     return None if total <= 0 else count / total
+
+
+def _switches_within_groups(events: list[dict[str, Any]], *, group_key: str, value_key: str) -> int:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for event in events:
+        group = event.get(group_key)
+        if _not_empty(group):
+            grouped.setdefault(str(group), []).append(event)
+    return sum(_switch_count(group, value_key) for group in grouped.values())
+
+
+def compute_scenario_diagnostics(
+    events: list[dict[str, Any]], *, processed_frames: int,
+    expected_real_person_count: int,
+) -> dict[str, Any]:
+    """Compute label-free identity diagnostics for G1-G4 multi-person clips.
+
+    The values describe pipeline output and fragmentation symptoms. They are
+    deliberately not named IDF1, MOTA or ID switches because those require
+    frame-level ground-truth identities and boxes.
+    """
+    tracked = [event for event in events if _not_empty(event.get("track_id"))]
+    assigned = [event for event in tracked if _not_empty(event.get("person_id"))]
+    track_ids = {str(event["track_id"]) for event in tracked}
+    person_ids = {str(event["person_id"]) for event in assigned}
+    tracks_by_person: dict[str, set[str]] = {}
+    for event in assigned:
+        tracks_by_person.setdefault(str(event["person_id"]), set()).add(str(event["track_id"]))
+    state_counts = Counter(str(event.get("state") or "unknown") for event in events)
+    zone_counts = Counter(str(event.get("decision_zone") or "unknown") for event in events
+                          if _not_empty(event.get("decision_zone")))
+    unique_person_count = len(person_ids)
+    return {
+        "processed_frames": int(processed_frames),
+        "expected_real_person_count": int(expected_real_person_count),
+        "detection_event_count": len(events),
+        "tracked_event_count": len(tracked),
+        "assigned_person_event_count": len(assigned),
+        "person_assignment_ratio": _ratio(len(assigned), len(tracked)),
+        "unique_track_ids": len(track_ids),
+        "unique_person_ids": unique_person_count,
+        "profile_count_delta": unique_person_count - int(expected_real_person_count),
+        "profile_fragmentation_surplus": max(0, unique_person_count - int(expected_real_person_count)),
+        "profile_shortage": max(0, int(expected_real_person_count) - unique_person_count),
+        "track_to_person_output_switches": _switches_within_groups(
+            assigned, group_key="track_id", value_key="person_id"),
+        "person_to_track_fragment_surplus": sum(max(0, len(tracks) - 1)
+                                                for tracks in tracks_by_person.values()),
+        "state_counts": dict(state_counts),
+        "decision_zone_counts": dict(zone_counts),
+        "strong_match_count": int(zone_counts.get("strong", 0)),
+        "weak_match_count": int(zone_counts.get("weak", 0)),
+        "low_match_count": int(zone_counts.get("low", 0)),
+        "pending_weak_match_count": int(state_counts.get("pending_weak_match", 0)),
+        "pending_new_person_count": int(state_counts.get("pending_new_person", 0)),
+        "pending_overlap_count": int(state_counts.get("pending_overlapping_detection", 0)),
+        "ground_truth_identity_metrics_available": False,
+    }
 
 
 @dataclass(frozen=True)

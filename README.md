@@ -8,13 +8,14 @@ Qualitätsprüfung, OSNet/Farbhistogramm, synthetische Personen-IDs und SQLite.
 **Eigene Tracker und Verfahren:** [Backend-Schnittstellen](docs/EXTENDING_BACKENDS.md).
 **Profilrechnung und Profilschutz:** [Personenprofile](docs/PROFILE_UPDATES.md).
 **Umfang und offene Voraussetzungen:** [Evaluationsstand](docs/EVALUATION_SCOPE.md).
+**G1-G4-Videos und Gesamtvergleich:** [G1-G4-Auswertung](docs/G1_G4_EVALUATION.md).
 
-Das eigene D1-Preset mit erklärbarer Detail-/Tracking-Policy sowie die
+Die eigene D1-D6-Presetfamilie mit erklärbarer Detail-/Tracking-Policy sowie die
 getrennten Mehrpersonen- und Einzelpersonen-Testmodule sind in
 [DETAILS_TRACKING_INTEGRATION.md](docs/DETAILS_TRACKING_INTEGRATION.md) beschrieben.
 **Versuchsplan und Paper:** [LaTeX-Quelle](docs/technische_systemdokumentation.tex).
 
-Die quantitative Evaluation steht noch aus. B0/A1/A2/A3 und das getrennte D1-Preset verwenden dokumentierte
+Die quantitative Evaluation steht noch aus. B0/A1/A2/A3 und die getrennte D1-D6-Familie verwenden dokumentierte
 ReID-Gewichte beziehungsweise Farbhistogramme. Vollständige Frame-Exporte,
 isolierte Versuchsläufe und technische Laufmanifeste sind implementiert.
 Vor der eigentlichen Messung fehlen noch annotierte Pilot-/Testclips und deren
@@ -66,7 +67,12 @@ automatische Paketinstallationen während der Verarbeitung sind deaktiviert.
 | `colorhist` | A1 | HSV-Farbhistogramm | 0,55 / 0,65 |
 | `no_quality_thresholds` | A2 | OSNet | 0 / 0 |
 | `no_update_similarity` | A3 | OSNet | 0,55 / 0,65 |
-| `details_tracking` | D1 | OSNet + Details-Policy | 0,55 / 0,65 |
+| `details_tracking` | D1 | OSNet + vollständige Details-Policy | 0,55 / 0,65 |
+| `details_no_reranking` | D2 | D1 ohne Detail-Re-Ranking | 0,55 / 0,65 |
+| `details_no_weak_zone` | D3 | D1 ohne Weak-Zone | 0,55 / 0,65 |
+| `details_immediate_new_person` | D4 | D1 ohne verzögerte Neuanlage | 0,55 / 0,65 |
+| `details_no_overlap_protection` | D5 | D1 ohne Überlappungsschutz | 0,55 / 0,65 |
+| `details_no_motion_bonus` | D6 | D1 ohne Motion-Bonus | 0,55 / 0,65 |
 
 Alle Presets verwenden zunächst YOLOv8n, ByteTrack, Cosine-Schwellwert 0,82,
 Detektionskonfidenz 0,35, Eingangsgröße 640, drei Initialbeobachtungen und Updates
@@ -77,6 +83,8 @@ bleiben aktiv, die zusätzliche Ähnlichkeitsprüfung ist aus. Die anderen Prese
 verwenden zunächst 0,82 für diese Prüfung. Das sind Ausgangs-, keine finalen Pilotwerte.
 D1 ergänzt Detail-Re-Ranking, Strong/Weak/Low-Entscheidungszonen, Evidenz vor
 neuen IDs, Überlappungsschutz und einen begrenzten räumlichen Kontinuitätsbonus.
+D2-D6 entfernen jeweils genau einen dieser Bestandteile und dienen als
+Einzelfaktor-Ablationen. B0/A1/A2/A3 bleiben davon getrennt.
 
 Für einen vollständigen Clip ausdrücklich `--max-frames 0` verwenden; der
 interaktive Standard begrenzt den Lauf auf 500 Frames.

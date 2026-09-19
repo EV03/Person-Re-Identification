@@ -23,6 +23,11 @@ from app.utils.detail_utils import combine_visual_and_detail_score, detail_simil
 
 @dataclass(frozen=True)
 class DetailTrackingPolicy:
+    detail_reranking_enabled: bool = True
+    weak_match_zone_enabled: bool = True
+    delayed_new_person_enabled: bool = True
+    overlap_protection_enabled: bool = True
+    motion_continuity_enabled: bool = True
     detail_weight: float = .15
     detail_min_confidence: float = .55
     strong_match_threshold: float = .82
@@ -65,11 +70,11 @@ class DetailTrackingPolicy:
     def decision_zone(self, score: float) -> str:
         if score >= self.strong_match_threshold:
             return "strong"
-        if score >= self.weak_match_threshold:
+        if self.weak_match_zone_enabled and score >= self.weak_match_threshold:
             return "weak"
         return "low"
 
-    def as_metadata(self) -> dict[str, float | int | str]:
+    def as_metadata(self) -> dict[str, bool | float | int | str]:
         return {"name": "details_tracking_v2", **self.__dict__}
 
     def rank_profiles(
@@ -93,12 +98,17 @@ class DetailTrackingPolicy:
             if profile.person_id in exclude_person_ids or profile.embedding.shape != query.shape:
                 continue
             visual_score = cosine_similarity(query, checked_embedding(profile.embedding))
-            breakdown = detail_similarity_breakdown(detail_vector, profile.detail_vector)
-            detail_score = float(breakdown["score"]) if detail_vector is not None else None
-            final_score = combine_visual_and_detail_score(visual_score, detail_score, self.detail_weight)
+            if self.detail_reranking_enabled:
+                breakdown = detail_similarity_breakdown(detail_vector, profile.detail_vector)
+                detail_score = float(breakdown["score"]) if detail_vector is not None else None
+                final_score = combine_visual_and_detail_score(visual_score, detail_score, self.detail_weight)
+            else:
+                breakdown = {}
+                detail_score = None
+                final_score = visual_score
             motion_bonus = 0.0
             recent = recent_person_positions.get(profile.person_id)
-            if recent is not None:
+            if self.motion_continuity_enabled and recent is not None:
                 previous_frame, previous_center = recent
                 frame_gap = int(frame_index) - int(previous_frame)
                 distance_fraction = float(np.hypot(center[0] - previous_center[0], center[1] - previous_center[1]) / diagonal)
@@ -108,7 +118,8 @@ class DetailTrackingPolicy:
             matches.append(MatchResult(
                 profile.person_id, final_score, False,
                 visual_score=visual_score, detail_score=detail_score,
-                detail_weight=self.detail_weight if detail_vector is not None else 0.0,
+                detail_weight=(self.detail_weight
+                               if self.detail_reranking_enabled and detail_vector is not None else 0.0),
                 detail_breakdown=breakdown, decision_zone=self.decision_zone(final_score),
                 motion_bonus=motion_bonus,
             ))

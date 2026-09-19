@@ -87,6 +87,11 @@ class PipelineSettings:
 
     # Optional Details_Tracking identity-decision method. These values are part
     # of a preset even when the main policy is selected, making D1 reproducible.
+    detail_reranking_enabled: bool = True
+    weak_match_zone_enabled: bool = True
+    delayed_new_person_enabled: bool = True
+    overlap_protection_enabled: bool = True
+    motion_continuity_enabled: bool = True
     detail_weight: float = 0.15
     detail_min_confidence: float = 0.55
     strong_match_threshold: float = 0.82

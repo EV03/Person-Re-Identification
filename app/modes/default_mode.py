@@ -51,7 +51,7 @@ def build_no_update_similarity_mode() -> ModeConfig:
 
 
 def build_details_tracking_mode() -> ModeConfig:
-    """D1: OSNet plus the optional Details_Tracking decision policy."""
+    """D1: OSNet plus the complete Details_Tracking decision policy."""
     return replace(
         build_default_mode(),
         mode_id="details_tracking",
@@ -61,4 +61,59 @@ def build_details_tracking_mode() -> ModeConfig:
             "Neuanlage und begrenzten räumlichen Kontinuitätsbonus."
         ),
         decision_policy="details_tracking_v2",
+    )
+
+
+def build_details_no_reranking_mode() -> ModeConfig:
+    """D2: D1 without detail extraction and detail-score re-ranking."""
+    return replace(
+        build_details_tracking_mode(),
+        mode_id="details_no_reranking",
+        name="D2 - Details ohne Detail-Re-Ranking",
+        description="D1 ohne Detail-Registry und Detail-Re-Ranking; die übrigen Entscheidungsmechanismen bleiben aktiv.",
+        detail_reranking_enabled=False,
+    )
+
+
+def build_details_no_weak_zone_mode() -> ModeConfig:
+    """D3: D1 without tentative weak matches."""
+    return replace(
+        build_details_tracking_mode(),
+        mode_id="details_no_weak_zone",
+        name="D3 - Details ohne Weak-Zone",
+        description="D1 ohne vorläufige Weak-Zuordnung; Scores unter der Strong-Schwelle gelten direkt als Low.",
+        weak_match_zone_enabled=False,
+    )
+
+
+def build_details_immediate_new_person_mode() -> ModeConfig:
+    """D4: D1 without accumulating low-score evidence before a new ID."""
+    return replace(
+        build_details_tracking_mode(),
+        mode_id="details_immediate_new_person",
+        name="D4 - Details ohne verzögerte Neuanlage",
+        description="D1 legt nach dem Initialpuffer bei Low direkt eine neue ID an; der Überlappungsschutz bleibt aktiv.",
+        delayed_new_person_enabled=False,
+    )
+
+
+def build_details_no_overlap_mode() -> ModeConfig:
+    """D5: D1 without overlap protection for low-score candidates."""
+    return replace(
+        build_details_tracking_mode(),
+        mode_id="details_no_overlap_protection",
+        name="D5 - Details ohne Überlappungsschutz",
+        description="D1 ohne Intersection-over-smaller-box-Schutz vor einer neuen ID.",
+        overlap_protection_enabled=False,
+    )
+
+
+def build_details_no_motion_mode() -> ModeConfig:
+    """D6: D1 without the image-space continuity bonus."""
+    return replace(
+        build_details_tracking_mode(),
+        mode_id="details_no_motion_bonus",
+        name="D6 - Details ohne Motion-Bonus",
+        description="D1 ohne räumlichen Kontinuitätsbonus; visuelle und Detail-Scores bleiben unverändert aktiv.",
+        motion_continuity_enabled=False,
     )

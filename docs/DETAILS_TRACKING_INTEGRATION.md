@@ -31,6 +31,22 @@ auswählbar. Entscheidungspolicy und sämtliche Detail-, Evidenz- und
 Bewegungsparameter gehören zur gespeicherten Pipeline-Konfiguration. Die
 tatsächlich verwendete Policy wird in das Laufmanifest geschrieben.
 
+## D1-D6: Ablationen der Details-Pipeline
+
+| Preset | Aktive Änderung gegenüber D1 |
+|---|---|
+| D1 `details_tracking` | Vollständige Details-Tracking-Pipeline |
+| D2 `details_no_reranking` | Detail-Registry und Detail-Re-Ranking ausgeschaltet |
+| D3 `details_no_weak_zone` | Keine Weak-Zone; unter Strong folgt direkt Low |
+| D4 `details_immediate_new_person` | Keine Low-Evidenzsammlung; Neuanlage nach dem normalen Initialpuffer |
+| D5 `details_no_overlap_protection` | Kein Überlappungsschutz vor der Neuanlage |
+| D6 `details_no_motion_bonus` | Kein räumlicher Kontinuitätsbonus |
+
+Alle übrigen Parameter bleiben gegenüber D1 identisch. Dadurch misst jeder
+Vergleich den Einfluss genau eines entfernten Bestandteils. Die fünf Schalter
+sind auch im vollständigen Pipeline-Editor sichtbar und werden in eigenen
+Presets und Laufmanifesten gespeichert.
+
 YOLO-Gewichte in `models/yolo`, `data/models` oder im Projektstamm sowie
 ReID-Checkpoints in `models/reid`, `data/models` oder dem Torch-Checkpoint-Cache
 werden automatisch in den Modell-Dropdowns angeboten. Eigene Pfade bleiben
@@ -43,7 +59,7 @@ eingebbar. Das ist eine lokale Dateierkennung, kein automatischer Download.
 - geeignet für zwei oder mehr sichtbare Personen;
 - zeigt die vorhandenen `main`-Artefakte (`frames.jsonl`, MOT-Export,
   Laufmanifest), Laufzeit, FPS und Real-Time-Factor;
-- läuft wahlweise mit B0/A1/A2/A3, D1 oder einem eigenen gespeicherten Preset;
+- läuft wahlweise mit B0/A1/A2/A3, D1-D6 oder einem eigenen gespeicherten Preset;
 - erzeugt ohne dichte Ground Truth bewusst keine behaupteten IDF1-/MOTA-Werte.
 
 ### Einzelpersonen- und Detailtest
@@ -106,3 +122,6 @@ python scripts/evaluate_single_person_videos.py run `
 
 `--preset default` führt denselben Einzelpersonentest mit der Main-Pipeline aus;
 auch die übrigen eingebauten und selbst gespeicherten Presets sind zulässig.
+
+Für die gemeinsamen Mehrpersonen-Szenarien G1-G4 und den automatischen Lauf
+über B0/A1/A2/A3/D1-D6 siehe [G1_G4_EVALUATION.md](G1_G4_EVALUATION.md).

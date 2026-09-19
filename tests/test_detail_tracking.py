@@ -78,8 +78,62 @@ class DetailDecisionPolicyTests(unittest.TestCase):
         self.assertFalse(has_sufficient_new_person_evidence(
             evidence[:2], max_score=.4, min_events=3, min_span_frames=7, low_match_ratio=.8))
 
+    def test_ablation_switches_remove_only_the_selected_support_signal(self) -> None:
+        detail = np.zeros(DETAIL_VECTOR_LENGTH, dtype=np.float32)
+        detail[14] = 1.0
+        candidate = profile("person", [1, 0], detail)
+        no_detail = DetailTrackingPolicy(detail_reranking_enabled=False).rank_profiles(
+            np.asarray([1, 0], dtype=np.float32), detail, [candidate],
+            exclude_person_ids=set(), bbox_xyxy=(10, 10, 30, 60), frame_index=10,
+            image_width=100, image_height=100, recent_person_positions={},
+        )[0]
+        self.assertIsNone(no_detail.detail_score)
+        self.assertEqual(no_detail.detail_weight, 0)
+        self.assertEqual(DetailTrackingPolicy(weak_match_zone_enabled=False).decision_zone(.75), "low")
+        no_motion = DetailTrackingPolicy(motion_continuity_enabled=False).rank_profiles(
+            np.asarray([1, 0], dtype=np.float32), None, [candidate],
+            exclude_person_ids=set(), bbox_xyxy=(10, 10, 30, 60), frame_index=10,
+            image_width=100, image_height=100,
+            recent_person_positions={"person": (9, (20.0, 35.0))},
+        )[0]
+        self.assertEqual(no_motion.motion_bonus, 0)
+
 
 class DetailPersistenceAndReportTests(unittest.TestCase):
+    def test_d4_creates_after_initial_buffer_while_d1_keeps_low_match_pending(self) -> None:
+        def run(delayed: bool) -> tuple[int, str]:
+            with tempfile.TemporaryDirectory() as folder:
+                paths = paths_for(Path(folder))
+                detection = Detection(1, (10, 5, 80, 155), .95)
+                capture = FakeCapture(1)
+                capture.frames = [np.full((160, 100, 3), 120, dtype=np.uint8)]
+                pipeline = PersonReIdPipeline(
+                    PipelineConfig(
+                        encoder_backend="colorhist", max_frames=0, draw_debug=False,
+                        decision_policy="details_tracking_v2",
+                        delayed_new_person_enabled=delayed,
+                        min_crop_width=1, min_crop_height=1, crop_padding=0,
+                        min_good_frames_before_reid=1, min_embedding_quality=0,
+                        min_update_quality=0, reid_every_n_frames=1,
+                    ),
+                    paths=paths, tracker=SequenceTracker([[detection]]), encoder=RecordingEncoder(),
+                )
+                pipeline.profiles.add_or_update_person(
+                    "person_000001", np.asarray([-1.0, 0.0], dtype=np.float32),
+                    "seed", 0, 99, (0, 0, 10, 20), None, None,
+                    {"quality_score": 1.0},
+                )
+                pipeline._open_capture = lambda _source: capture
+                with patch("app.pipeline.orchestrator.cv2.VideoWriter", return_value=FakeWriter()), patch(
+                    "app.pipeline.orchestrator.save_crop", return_value=Path(folder) / "snapshot.jpg"
+                ):
+                    result = pipeline.process("fixture.mp4")
+                row = json.loads(result.predictions_path.read_text(encoding="utf-8").splitlines()[0])
+                return result.created_persons, row["detections"][0]["state"]
+
+        self.assertEqual(run(True), (0, "pending_new_person"))
+        self.assertEqual(run(False), (1, "created_identity"))
+
     def test_pipeline_policy_persists_details_and_reports_decision_counters(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             paths = paths_for(Path(folder))

@@ -22,11 +22,16 @@ Die quantitative Evaluation wurde noch nicht durchgeführt.
 | `no_quality_thresholds` | A2 | Nur die beiden Annahmeschwellen werden null |
 | `no_update_similarity` | A3 | Nur der Update-Ähnlichkeitsschutz wird mit -1 deaktiviert |
 | `details_tracking` | D1 | Detail-Re-Ranking, Strong/Weak/Low-Zonen, Evidenz vor neuen IDs und begrenzter räumlicher Bonus |
+| `details_no_reranking` | D2 | D1 ohne Detail-Registry und Re-Ranking |
+| `details_no_weak_zone` | D3 | D1 ohne vorläufige Weak-Zuordnung |
+| `details_immediate_new_person` | D4 | D1 ohne verzögerte Neuanlage |
+| `details_no_overlap_protection` | D5 | D1 ohne Überlappungsschutz |
+| `details_no_motion_bonus` | D6 | D1 ohne Motion-Bonus |
 
 A2 behält Qualitätsgewichtung, Mindestgrößen, Initialpuffer und Snapshot-Auswahl.
 B0/A1/A2/A3 bleiben der vierteilige Kernvergleich; D1 ist eine getrennt
-ausgewiesene Erweiterungspipeline. Alle fünf Presets sind Ausgangskonfigurationen,
-keine final ausgewählten Pilotwerte.
+ausgewiesene Erweiterungspipeline. D2-D6 sind Einzelfaktor-Ablationen von D1.
+Alle zehn Presets sind Ausgangskonfigurationen, keine final ausgewählten Pilotwerte.
 Sie enthalten zunächst dieselben sonstigen Parameter. CLI/UI-Overrides
 sind möglich und müssen als Konfigurationsänderung aufgezeichnet werden.
 

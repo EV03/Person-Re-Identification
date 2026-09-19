@@ -16,6 +16,11 @@ from app.modes.base_mode import ModeConfig
 from app.modes.default_mode import (
     build_colorhist_mode,
     build_default_mode,
+    build_details_immediate_new_person_mode,
+    build_details_no_motion_mode,
+    build_details_no_overlap_mode,
+    build_details_no_reranking_mode,
+    build_details_no_weak_zone_mode,
     build_details_tracking_mode,
     build_no_quality_thresholds_mode,
     build_no_update_similarity_mode,
@@ -27,6 +32,11 @@ _BUILTIN_MODES = (
     build_no_quality_thresholds_mode,
     build_no_update_similarity_mode,
     build_details_tracking_mode,
+    build_details_no_reranking_mode,
+    build_details_no_weak_zone_mode,
+    build_details_immediate_new_person_mode,
+    build_details_no_overlap_mode,
+    build_details_no_motion_mode,
 )
 
 

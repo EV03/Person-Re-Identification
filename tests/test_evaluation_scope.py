@@ -52,6 +52,19 @@ class EvaluationPresetTests(unittest.TestCase):
         changed = {key for key in base if base[key] != details[key]}
         self.assertEqual(changed - {"mode_id", "mode_name"}, {"decision_policy"})
         self.assertEqual(modes["details_tracking"].decision_policy, "details_tracking_v2")
+        d1 = asdict(modes["details_tracking"].to_pipeline_config())
+        for mode_id, disabled_field in (
+            ("details_no_reranking", "detail_reranking_enabled"),
+            ("details_no_weak_zone", "weak_match_zone_enabled"),
+            ("details_immediate_new_person", "delayed_new_person_enabled"),
+            ("details_no_overlap_protection", "overlap_protection_enabled"),
+            ("details_no_motion_bonus", "motion_continuity_enabled"),
+        ):
+            with self.subTest(mode=mode_id):
+                variant = asdict(modes[mode_id].to_pipeline_config())
+                changed = {key for key in d1 if d1[key] != variant[key]}
+                self.assertEqual(changed - {"mode_id", "mode_name"}, {disabled_field})
+                self.assertFalse(variant[disabled_field])
 
     def test_custom_preset_round_trip_preserves_name_and_overrides(self) -> None:
         with tempfile.TemporaryDirectory() as folder:

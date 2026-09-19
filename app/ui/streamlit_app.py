@@ -165,6 +165,14 @@ def render_pipeline_editor() -> dict[str, object]:
         if st.session_state["pipeline_decision_policy"] != "details_tracking_v2":
             st.caption("Diese Werte werden gespeichert, aber erst mit der Details-Tracking-Policy aktiv.")
         for field, label, help_text in (
+            ("detail_reranking_enabled", "Detail-Re-Ranking aktiv", "Extrahiert die Detail-Registry und kombiniert sie mit dem visuellen ReID-Score."),
+            ("weak_match_zone_enabled", "Weak-Zone aktiv", "Erlaubt vorläufige Zuordnungen ohne Profilupdate zwischen Weak- und Strong-Schwelle."),
+            ("delayed_new_person_enabled", "Neue IDs verzögern", "Sammelt wiederholte Low-Evidenz, bevor ein neues Personenprofil angelegt wird."),
+            ("overlap_protection_enabled", "Überlappungsschutz aktiv", "Unterdrückt neue IDs für stark überlappende Low-Kandidaten."),
+            ("motion_continuity_enabled", "Motion-Kontinuitätsbonus aktiv", "Erlaubt einen begrenzten Bonus für räumlich plausible Fortsetzungen."),
+        ):
+            st.checkbox(label, key=f"pipeline_{field}", help=help_text)
+        for field, label, help_text in (
             ("detail_weight", "Detail reranking weight", "Gewicht visueller Details zusätzlich zur ReID-Cosine-Similarity."),
             ("detail_min_confidence", "Minimum detail confidence", "Mindestvertrauen, ab dem extrahierte Details das Ranking beeinflussen."),
             ("new_person_low_match_ratio", "Required low-match ratio", "Anteil niedriger Scores im Evidenzfenster für die verzögerte Neuanlage."),
@@ -198,7 +206,7 @@ def render_pipeline_editor() -> dict[str, object]:
 
 def render_save_mode_form(paths: AppPaths, config: PipelineConfig) -> None:
     with st.expander("Aktuelle Einstellungen als neue Versuchskonfiguration speichern"):
-        st.caption("Speichert exakt alle oben eingestellten Pipeline-Parameter. B0/A1/A2/A3/D1 und vorhandene Presets werden nicht überschrieben.")
+        st.caption("Speichert exakt alle oben eingestellten Pipeline-Parameter. B0/A1/A2/A3/D1-D6 und vorhandene Presets werden nicht überschrieben.")
         with st.form("save_current_configuration"):
             custom_name = st.text_input("Mode name", value="Mein ReID-Pilot")
             custom_mode_id_raw = st.text_input("Mode id", value="mein_reid_pilot")
@@ -227,7 +235,7 @@ paths.ensure()
 
 st.title("Local Person Re-Identification MVP")
 st.caption("Forschungsprototyp: YOLO, Tracking, qualitätsgefilterte ReID und lokale SQLite-Speicherung")
-st.caption("B0/A1/A2/A3 und D1 sind Ausgangspresets: D1 aktiviert die Details-Tracking-Pipeline. Pilotwerte als eigene Konfigurationen speichern und vor den Testclips einfrieren.")
+st.caption("B0/A1/A2/A3 und D1-D6 sind Ausgangspresets: D1 ist Details Tracking vollständig, D2-D6 entfernen jeweils eine Methode. Pilotwerte vor den Testclips einfrieren.")
 
 modes = list_modes(paths)
 pending_preset_id = st.session_state.pop("pending_preset_id", None)

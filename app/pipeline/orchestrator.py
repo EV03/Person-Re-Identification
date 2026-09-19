@@ -518,7 +518,7 @@ class PersonReIdPipeline:
                     self._embedding_dimension = embedding.size
                     detail_snapshot = (
                         extract_detail_snapshot(crop, min_confidence=detail_policy.detail_min_confidence)
-                        if detail_policy is not None else None
+                        if detail_policy is not None and detail_policy.detail_reranking_enabled else None
                     )
                     candidate = TrackEmbeddingCandidate(
                         embedding=embedding,
@@ -619,13 +619,20 @@ class PersonReIdPipeline:
                                 state = "pending_weak_match"
                             else:
                                 best_score = float(match.score) if match is not None else -1.0
-                                overlaps = any(
+                                overlaps = detail_policy.overlap_protection_enabled and any(
                                     intersection_over_smaller_box(best_candidate.bbox_xyxy, assigned_box)
                                     >= detail_policy.new_person_overlap_threshold
                                     for _, assigned_box in assigned_person_boxes_this_frame
                                 )
                                 if overlaps:
                                     state = "pending_overlapping_detection"
+                                elif not detail_policy.delayed_new_person_enabled:
+                                    person_id = self.profiles.create_person_id()
+                                    score = None
+                                    created_persons += 1
+                                    created_identity = True
+                                    should_store_update = True
+                                    state = "created_identity"
                                 else:
                                     evidence = track_low_match_evidence.setdefault(detection.track_id, [])
                                     evidence.append((frame_index, best_score))
