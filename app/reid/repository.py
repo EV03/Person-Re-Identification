@@ -21,6 +21,8 @@ class IdentityProfile:
     best_snapshot_path: str | None = None
     best_snapshot_quality: float = 0.0
     embedding_sum: np.ndarray | None = None
+    detail_vector: np.ndarray | None = None
+    detail_weight_sum: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -75,7 +77,9 @@ class ProfileUpdater(Protocol):
     def update(self, previous: IdentityProfile | None, *, person_id: str,
                embedding: np.ndarray, weight: float, snapshot_path: str | None,
                snapshot_quality: float, timestamp: str,
-               batch: EmbeddingBatch | None = None) -> IdentityProfile: ...
+               batch: EmbeddingBatch | None = None,
+               detail_vector: np.ndarray | None = None,
+               detail_weight: float = 0.0) -> IdentityProfile: ...
 
 
 class ProfileManager(Protocol):

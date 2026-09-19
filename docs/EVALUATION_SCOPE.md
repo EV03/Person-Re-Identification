@@ -37,11 +37,12 @@ und zeitlichen Parameter sind editierbar. Tracker-interne Schwellen bleiben in d
 Tracker-YAML, Konstanten und Gewichte der Qualitätsheuristik bleiben unverändert.
 Diese Einstellbarkeit dient Pilotversuchen, nicht einer Nachkalibrierung auf Testclips.
 
-Die bisherige zusätzliche Bewegungsdiagnostik ist vollständig aus dem aktiven
-Hauptpfad entfernt. Das betrifft Richtungsvektoren, Pixelgeschwindigkeit,
-Sprung-Warnungen, Payload-Felder und eigene UI-Steuerung. Die interne Bewegungsschätzung
-des verwendeten Trackers bleibt Teil des Trackings. Bewegung bleibt als Teil der
-Versuchsgruppe G1 sinnvoll; eine eigene Motion-Metrik wird nicht behauptet.
+Die bisherige umfangreiche Bewegungsdiagnostik bleibt aus der normalen `main`-
+Policy entfernt. Die optionale `Details_Tracking`-Policy kann ausschließlich
+einen kleinen, begrenzten Bildraum-Kontinuitätsbonus verwenden. Richtung,
+Pixelgeschwindigkeit und Sprungmetriken werden weiterhin nicht als eigene
+Identitätsmethode behauptet. Die interne Bewegungsschätzung des verwendeten
+Trackers bleibt davon getrennt.
 
 Fußballmodule, Team-/Ball-/Spielfeldmodelle, ihre Tabellen-Erzeugung und die ungenutzte
 Qdrant-Servicekonfiguration liegen nur noch im gesicherten Entwicklungsstand.
@@ -69,11 +70,12 @@ die bisherige `custom_modes.json` wird weder geladen noch überschrieben.
 - Sichtbare bekannte Personen-IDs werden vor der Bearbeitung neuer Tracks reserviert.
 - Preset-Namen werden korrekt in die Laufkonfiguration übernommen.
 
-Der bisherige Identitäts-Fix wurde nicht vollständig übernommen: Die darin enthaltene
-Motion-basierte Neuzuordnung würde eine andere Methode einführen. Bekannte Tracks
-behalten weiterhin ihre Personenkennung. Profilupdates prüfen inzwischen zusätzlich
-die Ähnlichkeit zum Zielprofil; diese Prüfung repariert die Track-/Personenzuordnung
-nicht. A3 entfernt nur diese Prüfung für den kontrollierten Vergleich.
+Die normale `main`-Policy behält weiterhin ihre Personenkennung für bekannte
+Tracks. Für getrennt ausgewiesene Erweiterungsläufe steht nun optional die
+`Details_Tracking`-Policy mit Detail-Re-Ranking, drei Entscheidungszonen,
+verzögerter Neuanlage und kleinem räumlichen Bonus bereit. Profilupdates prüfen
+weiterhin die Ähnlichkeit zum Zielprofil; Weak-Matches aktualisieren das Profil
+nicht. A3 verändert nur den ursprünglichen Update-Schutz der `main`-Methode.
 
 ## Die sechs technischen Vorbereitungen sind implementiert
 

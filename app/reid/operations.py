@@ -40,7 +40,9 @@ class WeightedMeanProfileUpdater:
     def update(self, previous: IdentityProfile | None, *, person_id: str,
                embedding: np.ndarray, weight: float, snapshot_path: str | None,
                snapshot_quality: float, timestamp: str,
-               batch: EmbeddingBatch | None = None) -> IdentityProfile:
+               batch: EmbeddingBatch | None = None,
+               detail_vector: np.ndarray | None = None,
+               detail_weight: float = 0.0) -> IdentityProfile:
         vector = checked_embedding(embedding)
         if batch is None:
             batch = EmbeddingBatch(vector * weight, weight, 1)
@@ -51,10 +53,20 @@ class WeightedMeanProfileUpdater:
             raise ValueError("Invalid weighted embedding batch.")
         if not np.allclose(checked_embedding(addition), vector, rtol=1e-5, atol=1e-6):
             raise ValueError("Batch sum and matching embedding must have the same direction.")
+        incoming_detail = None
+        incoming_detail_weight = 0.0
+        if detail_vector is not None:
+            incoming_detail = np.asarray(detail_vector, dtype=np.float64).reshape(-1)
+            incoming_detail_weight = float(detail_weight)
+            if (incoming_detail.size == 0 or not np.isfinite(incoming_detail).all()
+                    or not np.isfinite(incoming_detail_weight) or incoming_detail_weight <= 0):
+                raise ValueError("Invalid detail vector or weight.")
         if previous is None:
             total = addition.copy()
             total_weight, count = batch.weight_sum, batch.observations
             created_at, best_path, best_quality = timestamp, snapshot_path, snapshot_quality
+            merged_detail = incoming_detail
+            merged_detail_weight = incoming_detail_weight
         else:
             if previous.embedding.shape != vector.shape:
                 raise ValueError("Embedding dimension changed; use the database for this encoder.")
@@ -71,8 +83,18 @@ class WeightedMeanProfileUpdater:
             best_quality = previous.best_snapshot_quality
             if snapshot_path and snapshot_quality >= best_quality:
                 best_path, best_quality = snapshot_path, snapshot_quality
+            merged_detail = previous.detail_vector
+            merged_detail_weight = float(previous.detail_weight_sum)
+            if incoming_detail is not None:
+                if merged_detail is not None and merged_detail.shape == incoming_detail.shape and merged_detail_weight > 0:
+                    total_detail_weight = merged_detail_weight + incoming_detail_weight
+                    merged_detail = (merged_detail * merged_detail_weight + incoming_detail * incoming_detail_weight) / total_detail_weight
+                    merged_detail_weight = total_detail_weight
+                else:
+                    merged_detail, merged_detail_weight = incoming_detail, incoming_detail_weight
         if not np.isfinite(total_weight) or total_weight <= 0:
             raise ValueError("Stored embedding weight sum is invalid.")
         profile_vector = checked_embedding(total / total_weight).astype(np.float32)
         return IdentityProfile(person_id, profile_vector, count, total_weight,
-                               created_at, timestamp, best_path, best_quality, total)
+                               created_at, timestamp, best_path, best_quality, total,
+                               merged_detail, merged_detail_weight)

@@ -20,6 +20,13 @@ class MatchResult:
     person_id: str
     score: float
     is_new: bool
+    visual_score: float | None = None
+    detail_score: float | None = None
+    detail_weight: float = 0.0
+    detail_breakdown: dict[str, Any] = field(default_factory=dict)
+    decision_zone: str = "unknown"
+    motion_bonus: float = 0.0
+    top_matches: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -47,6 +54,10 @@ class PipelineResult:
     predictions_path: Path | None = None
     tracking_predictions_path: Path | None = None
     manifest_path: Path | None = None
+    decision_policy: str = "main_single_threshold"
+    strong_match_events: int = 0
+    pending_weak_match_events: int = 0
+    pending_new_person_events: int = 0
 
 
 Embedding = np.ndarray

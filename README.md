@@ -8,6 +8,10 @@ Qualitätsprüfung, OSNet/Farbhistogramm, synthetische Personen-IDs und SQLite.
 **Eigene Tracker und Verfahren:** [Backend-Schnittstellen](docs/EXTENDING_BACKENDS.md).
 **Profilrechnung und Profilschutz:** [Personenprofile](docs/PROFILE_UPDATES.md).
 **Umfang und offene Voraussetzungen:** [Evaluationsstand](docs/EVALUATION_SCOPE.md).
+
+Die optionale Integration der erklärbaren Detail-/Tracking-Policy sowie die
+getrennten Mehrpersonen- und Einzelpersonen-Testmodule sind in
+[DETAILS_TRACKING_INTEGRATION.md](docs/DETAILS_TRACKING_INTEGRATION.md) beschrieben.
 **Versuchsplan und Paper:** [LaTeX-Quelle](docs/technische_systemdokumentation.tex).
 
 Die quantitative Evaluation steht noch aus. B0/A1/A2/A3 verwenden dokumentierte

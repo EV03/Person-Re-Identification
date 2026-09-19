@@ -62,6 +62,12 @@ class ProfileService:
         quality = _bounded_payload_value(payload.get("snapshot_quality", payload.get("quality_score", 0.0)), 0.0, 0.0)
         payload["embedding_weight"] = batch.weight_sum if batch is not None else weight
         payload["embedding_observations"] = batch.observations if batch is not None else 1
+        details = payload.get("details")
+        raw_detail = payload.get("detail_vector")
+        if raw_detail is None and isinstance(details, dict):
+            raw_detail = details.get("vector")
+        detail_vector = None if raw_detail is None else np.asarray(raw_detail, dtype=np.float64).reshape(-1)
+        detail_weight = float(payload.get("detail_weight", batch.weight_sum if batch is not None else weight))
         embedding = checked_embedding(embedding)
         previous = self.repository.get_profile(person_id)
         similarity = None
@@ -80,9 +86,13 @@ class ProfileService:
                                              score, snapshot_path, timestamp, payload)
             self.repository.save_observation(previous, observation)
             return decision
-        profile = self.updater.update(previous, person_id=person_id,
-                                      embedding=embedding, weight=weight, snapshot_path=snapshot_path,
-                                      snapshot_quality=quality, timestamp=timestamp, batch=batch)
+        update_kwargs = dict(previous=previous, person_id=person_id,
+                             embedding=embedding, weight=weight, snapshot_path=snapshot_path,
+                             snapshot_quality=quality, timestamp=timestamp, batch=batch)
+        if detail_vector is None:
+            profile = self.updater.update(**update_kwargs)
+        else:
+            profile = self.updater.update(**update_kwargs, detail_vector=detail_vector, detail_weight=detail_weight)
         observation = ProfileObservation(person_id, source, frame_index, track_id, bbox_xyxy,
                                          score, snapshot_path, timestamp, payload)
         self.repository.save_observation(profile, observation)

@@ -23,9 +23,11 @@ from app.config import AppPaths, PipelineConfig
 from app.modes.base_mode import ModeConfig
 from app.modes.mode_registry import list_modes, normalize_mode_id, save_custom_mode
 from app.pipeline.orchestrator import PersonReIdPipeline
+from app.pipeline.detail_tracking import DetailTrackingPolicy
 from app.storage.vector_store import SQLiteVectorStore
 from app.storage.encoder_paths import paths_for_encoder
 from app.evaluation.runner import create_unit_paths
+from app.evaluation.single_person import create_single_person_report, load_main_run_metrics
 from app.ui.config_editor import (
     RUNTIME_PARAMETER_FIELDS,
     build_run_config,
@@ -198,6 +200,30 @@ with st.sidebar:
 
     st.divider()
     st.header("Quelle und Anzeige (nicht Teil des Presets)")
+    test_module = st.selectbox(
+        "Test module",
+        ["Mehrpersonen- und Trackingtest", "Einzelpersonen- und Detailtest"],
+        help=(
+            "Der Mehrpersonentest zeigt die vorhandenen main-Artefakte und Laufzeitmetriken. "
+            "Der Einzelpersonentest erzeugt zusätzlich den aus Details_Tracking portierten "
+            "Kontinuitäts- und Fragmentierungsbericht."
+        ),
+    )
+    if test_module == "Mehrpersonen- und Trackingtest":
+        use_detail_tracking = st.checkbox(
+            "Details_Tracking-Policy auch für 2+ Personen verwenden",
+            value=True,
+            help="Aktiviert Detail-Re-Ranking, Strong/Weak/Low-Zonen, verzögerte neue IDs und den kleinen räumlichen Kontinuitätsbonus.",
+        )
+        single_expected_person_id = ""
+        single_condition = ""
+        single_notes = ""
+    else:
+        use_detail_tracking = True
+        st.caption("Kontrollierter Test mit genau einer realen Person; keine IDF1/MOTA-Mehrpersonenauswertung.")
+        single_expected_person_id = st.text_input("Expected person ID (optional)", value="")
+        single_condition = st.text_input("Test condition", value="default")
+        single_notes = st.text_area("Test notes", value="", height=70)
     input_type = st.radio("Input type", ["Video upload", "Local webcam"], index=0)
     isolated_run = st.checkbox("Isolierter Lauf (neue Datenbank)", value=True,
                                help="Standard für unabhängige Versuche. Deaktivieren verwendet den gemeinsamen Bestand dieses Encoders/Checkpoints. Andere Encoder haben eigene Datenbanken; für Registrierung/Rückkehr über zwei Videos den Versuchsstarter mit beiden Quellen verwenden.")
@@ -349,7 +375,11 @@ if run_clicked and source is not None:
         run_paths = create_unit_paths(base_paths=paths, mode_id=config.mode_id) if isolated_run else paths
         run_paths = paths_for_encoder(run_paths, config)
         st.session_state["last_run_paths"] = run_paths
-        pipeline = PersonReIdPipeline(config=config, paths=run_paths)
+        pipeline = PersonReIdPipeline(
+            config=config,
+            paths=run_paths,
+            detail_policy=DetailTrackingPolicy() if use_detail_tracking else None,
+        )
         result = pipeline.process(
             source,
             progress_callback=update_progress,
@@ -381,9 +411,45 @@ if run_clicked and source is not None:
     with right:
         st.subheader("Run summary")
         st.metric("Mode", result.mode_id)
+        st.metric("Decision policy", result.decision_policy)
         st.metric("Created persons in this run", result.created_persons)
         st.metric("Matched events in this run", result.matched_events)
         st.metric("Total known persons", len(result.persons))
+        if use_detail_tracking:
+            st.metric("Strong matches", result.strong_match_events)
+            st.metric("Pending weak matches", result.pending_weak_match_events)
+            st.metric("Pending new-person observations", result.pending_new_person_events)
+
+    if test_module == "Einzelpersonen- und Detailtest" and result.predictions_path:
+        report = create_single_person_report(
+            predictions_path=result.predictions_path,
+            output_dir=result.predictions_path.parent,
+            video_name=Path(str(source)).name,
+            condition=single_condition,
+            expected_person_id=single_expected_person_id.strip() or None,
+            notes=single_notes,
+        )
+        st.subheader("Einzelpersonen-Metriken (Details_Tracking)")
+        metric_columns = st.columns(4)
+        metric_columns[0].metric("Dominant Track Ratio", f"{report.metrics['dominant_track_ratio'] * 100:.1f} %")
+        metric_columns[1].metric("Dominant Person Ratio", f"{report.metrics['dominant_person_ratio'] * 100:.1f} %")
+        metric_columns[2].metric("Person-ID-Wechsel", report.metrics["person_switch_count"])
+        metric_columns[3].metric("Fragmentierungsindex", report.metrics["profile_fragmentation_index"])
+        st.caption(f"Einzelpersonen-Bericht: {report.json_path}")
+        with st.expander("Vollständige Einzelpersonen-Metriken"):
+            st.json(report.metrics)
+    else:
+        main_metrics = load_main_run_metrics(result.manifest_path)
+        if main_metrics:
+            st.subheader("Main-Laufzeit- und Artefaktmetriken")
+            metric_columns = st.columns(3)
+            metric_columns[0].metric("Processed frames", main_metrics.get("processed_frames") or 0)
+            fps_value = main_metrics.get("frames_per_second")
+            metric_columns[1].metric("Processing FPS", "n/a" if fps_value is None else f"{fps_value:.2f}")
+            rtf_value = main_metrics.get("real_time_factor")
+            metric_columns[2].metric("Real-time factor", "n/a" if rtf_value is None else f"{rtf_value:.2f}")
+            with st.expander("Main-Artefakte"):
+                st.json(main_metrics)
 
 st.divider()
 

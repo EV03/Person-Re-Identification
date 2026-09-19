@@ -68,6 +68,8 @@ class SQLiteVectorStore:
             self._ensure_column(conn, "persons", "embedding_weight_sum", "REAL NOT NULL DEFAULT 1.0")
             self._ensure_column(conn, "persons", "embedding_sum", "TEXT")
             self._ensure_column(conn, "persons", "best_snapshot_quality", "REAL NOT NULL DEFAULT 0.0")
+            self._ensure_column(conn, "persons", "detail_vector", "TEXT")
+            self._ensure_column(conn, "persons", "detail_weight_sum", "REAL NOT NULL DEFAULT 0.0")
 
             conn.execute(
                 """
@@ -185,6 +187,8 @@ class SQLiteVectorStore:
             best_snapshot_path=row["best_snapshot_path"],
             best_snapshot_quality=float(row["best_snapshot_quality"] or 0.0),
             embedding_sum=cls._json_to_vector(row["embedding_sum"]) if row["embedding_sum"] is not None else None,
+            detail_vector=cls._json_to_vector(row["detail_vector"]) if row["detail_vector"] is not None else None,
+            detail_weight_sum=float(row["detail_weight_sum"] or 0.0),
         )
 
     def get_profile(self, person_id: str) -> IdentityProfile | None:
@@ -206,18 +210,22 @@ class SQLiteVectorStore:
                 """
                 INSERT INTO persons (
                     person_id, mean_embedding, observations, embedding_weight_sum,
-                    created_at, last_seen, best_snapshot_path, best_snapshot_quality, embedding_sum
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, last_seen, best_snapshot_path, best_snapshot_quality, embedding_sum,
+                    detail_vector, detail_weight_sum
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(person_id) DO UPDATE SET
                     mean_embedding=excluded.mean_embedding, observations=excluded.observations,
                     embedding_weight_sum=excluded.embedding_weight_sum, last_seen=excluded.last_seen,
                     best_snapshot_path=excluded.best_snapshot_path,
-                    best_snapshot_quality=excluded.best_snapshot_quality, embedding_sum=excluded.embedding_sum
+                    best_snapshot_quality=excluded.best_snapshot_quality, embedding_sum=excluded.embedding_sum,
+                    detail_vector=excluded.detail_vector, detail_weight_sum=excluded.detail_weight_sum
                 """,
                 (profile.person_id, self._vector_to_json(profile.embedding), profile.observations,
                  profile.embedding_weight_sum, profile.created_at, profile.last_seen,
                  profile.best_snapshot_path, profile.best_snapshot_quality,
-                 self._vector_to_json(profile.embedding_sum) if profile.embedding_sum is not None else None),
+                 self._vector_to_json(profile.embedding_sum) if profile.embedding_sum is not None else None,
+                 self._vector_to_json(profile.detail_vector) if profile.detail_vector is not None else None,
+                 profile.detail_weight_sum),
             )
             conn.execute(
                 """
@@ -295,6 +303,18 @@ class SQLiteVectorStore:
             record["quality_score"] = payload.get("quality_score")
             record["quality_average"] = payload.get("quality_average")
             record["good_frame_count"] = payload.get("good_frame_count")
+            details = payload.get("details") if isinstance(payload, dict) else None
+            if isinstance(details, dict):
+                record["details_label"] = details.get("label")
+                record["detail_reliability"] = details.get("reliability")
+            explanation = payload.get("match_explanation") if isinstance(payload, dict) else None
+            if isinstance(explanation, dict):
+                record["match_visual_score"] = explanation.get("visual_score")
+                record["match_detail_score"] = explanation.get("detail_score")
+                record["match_detail_weight"] = explanation.get("detail_weight")
+                record["match_motion_bonus"] = explanation.get("motion_bonus")
+                record["decision_zone"] = explanation.get("decision_zone")
+                record["match_reason"] = explanation.get("summary")
             records.append(record)
 
         return pd.DataFrame(records)

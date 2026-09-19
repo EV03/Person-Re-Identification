@@ -20,6 +20,12 @@ from app.config import AppPaths, PipelineConfig
 from app.evaluation.artifacts import RunArtifacts
 from app.pipeline.contracts import BackendMetadata, EmbeddingEncoder, PersonTracker, ReleasableBackend, TrackerFactory
 from app.pipeline.detector_tracker import build_tracker
+from app.pipeline.detail_tracking import (
+    DetailTrackingPolicy,
+    bbox_center,
+    has_sufficient_new_person_evidence,
+    intersection_over_smaller_box,
+)
 from app.pipeline.reid_encoder import build_encoder
 from app.reid.repository import EmbeddingBatch, EvaluationRepository, ProfileManager, ProfileMatcher, ProfileUpdater
 from app.reid.service import ProfileService
@@ -37,6 +43,7 @@ from app.utils.image_utils import (
     normalize_vector,
     save_crop,
 )
+from app.utils.detail_utils import DetailSnapshot, compact_detail_influences, extract_detail_snapshot
 
 ProgressCallback = Callable[[int, int | None, str], None]
 FrameCallback = Callable[[int, np.ndarray], None]
@@ -58,6 +65,7 @@ class TrackEmbeddingCandidate:
     bbox_xyxy: tuple[int, int, int, int]
     frame_index: int
     detection_confidence: float
+    detail_snapshot: DetailSnapshot | None = None
 
 
 class PersonReIdPipeline:
@@ -73,6 +81,7 @@ class PersonReIdPipeline:
                  store: EvaluationRepository | None = None,
                  profiles: ProfileManager | None = None,
                  matcher: ProfileMatcher | None = None, updater: ProfileUpdater | None = None,
+                 detail_policy: DetailTrackingPolicy | None = None,
                  tracker_factory: TrackerFactory = build_tracker) -> None:
         if profiles is not None and (matcher is not None or updater is not None):
             raise ValueError("Configure matcher/updater on the supplied profile manager, not on the pipeline.")
@@ -91,6 +100,7 @@ class PersonReIdPipeline:
         self.tracker = tracker
         self.encoder = encoder
         self.tracker_factory = tracker_factory
+        self.detail_policy = detail_policy
         self._has_processed = False
 
     def _open_capture(self, source: str | int | CameraSource) -> cv2.VideoCapture:
@@ -133,6 +143,8 @@ class PersonReIdPipeline:
         good_frame_count: int,
         quality_average: float | None = None,
         decision_frame_index: int,
+        detail_vector: np.ndarray | list[float] | tuple[float, ...] | None = None,
+        match: object | None = None,
     ) -> dict[str, object]:
         quality_average = candidate.quality_score if quality_average is None else quality_average
         payload: dict[str, object] = {
@@ -150,6 +162,27 @@ class PersonReIdPipeline:
             "snapshot_quality": float(candidate.quality_score),
             "quality_details": {key: float(value) for key, value in candidate.quality_details.items()},
         }
+        if candidate.detail_snapshot is not None:
+            payload["details"] = candidate.detail_snapshot.to_payload()
+            payload["detail_vector"] = (
+                [float(value) for value in np.asarray(detail_vector).reshape(-1)]
+                if detail_vector is not None else list(candidate.detail_snapshot.vector)
+            )
+            payload["detail_weight"] = float(quality_average)
+            payload["detail_reliability"] = float(candidate.detail_snapshot.reliability)
+        if match is not None:
+            breakdown = getattr(match, "detail_breakdown", None)
+            payload["match_explanation"] = {
+                "person_id": getattr(match, "person_id", None),
+                "final_score": float(getattr(match, "score", 0.0)),
+                "visual_score": getattr(match, "visual_score", None),
+                "detail_score": getattr(match, "detail_score", None),
+                "detail_weight": float(getattr(match, "detail_weight", 0.0)),
+                "motion_bonus": float(getattr(match, "motion_bonus", 0.0)),
+                "decision_zone": getattr(match, "decision_zone", "unknown"),
+                "summary": compact_detail_influences(breakdown),
+                "top_matches": getattr(match, "top_matches", []),
+            }
         return payload
 
     def process(
@@ -175,6 +208,10 @@ class PersonReIdPipeline:
             if not np.isfinite(max_duration_seconds) or max_duration_seconds <= 0:
                 raise ValueError("max_duration_seconds must be finite and greater than zero.")
 
+        # Several narrow integration tests construct the orchestrator without
+        # calling __init__; missing optional policy state must mean main mode.
+        detail_policy = getattr(self, "detail_policy", None)
+
         if getattr(self, "_has_processed", False):
             raise RuntimeError("A pipeline instance handles one source only; construct a fresh tracker/pipeline for the next run.")
         self._has_processed = True
@@ -190,6 +227,12 @@ class PersonReIdPipeline:
         processing_started: float | None = None
         try:
             run_metadata = asdict(self.config)
+            artifacts.metadata["identity_decision_policy"] = (
+                detail_policy.as_metadata() if detail_policy is not None
+                else {"name": "main_single_threshold", "match_threshold": self.config.match_threshold}
+            )
+            if detail_policy is not None:
+                run_metadata["identity_decision_policy"] = detail_policy.as_metadata()
             if max_duration_seconds is not None:
                 run_metadata["max_duration_seconds"] = max_duration_seconds
             self.store.add_analysis_run(
@@ -304,7 +347,7 @@ class PersonReIdPipeline:
         max_duration_seconds: float | None = None,
         run_metadata: dict[str, Any] | None = None,
     ) -> PipelineResult:
-
+        detail_policy = getattr(self, "detail_policy", None)
         assert self.tracker is not None and self.encoder is not None
         total_frames_raw = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         total_frames = total_frames_raw if total_frames_raw > 0 else None
@@ -363,8 +406,14 @@ class PersonReIdPipeline:
         track_to_person: dict[int, str] = {}
         track_to_last_score: dict[int, float | None] = {}
         track_candidates: dict[int, list[TrackEmbeddingCandidate]] = {}
+        track_low_match_evidence: dict[int, list[tuple[int, float]]] = {}
+        track_is_tentative: dict[int, bool] = {}
+        recent_person_positions: dict[str, tuple[int, tuple[float, float]]] = {}
         created_persons = 0
         matched_events = 0
+        strong_match_events = 0
+        pending_weak_match_events = 0
+        pending_new_person_events = 0
         frame_index = 0
         skipped_low_quality = 0
         waiting_for_good_frames = 0
@@ -388,6 +437,7 @@ class PersonReIdPipeline:
             frame_predictions: list[dict[str, object]] = []
             # Keep crops independent of boxes and labels drawn for other people.
             display_frame = frame.copy() if self.config.draw_debug else frame
+            assigned_person_boxes_this_frame: list[tuple[str, tuple[int, int, int, int]]] = []
             # Reserve all visible known IDs before visiting unknown tracks.
             used_person_ids_this_frame = {
                 track_to_person[detection.track_id]
@@ -404,6 +454,9 @@ class PersonReIdPipeline:
                     "match_score": score, "state": "known_track" if person_id else "pending",
                     "quality_score": None, "decision_frame_index": None, "snapshot_frame_index": None,
                     "profile_update_accepted": None, "update_similarity": None, "profile_update_reason": None,
+                    "decision_zone": None, "match_visual_score": None, "match_detail_score": None,
+                    "match_detail_weight": 0.0, "match_motion_bonus": 0.0,
+                    "detail_label": None, "detail_reliability": None,
                 }
                 frame_predictions.append(prediction)
                 if detection.track_id is None:
@@ -458,6 +511,10 @@ class PersonReIdPipeline:
                     if hasattr(self, "_embedding_dimension") and embedding.size != self._embedding_dimension:
                         raise ValueError("The encoder changed its embedding dimension within a run.")
                     self._embedding_dimension = embedding.size
+                    detail_snapshot = (
+                        extract_detail_snapshot(crop, min_confidence=detail_policy.detail_min_confidence)
+                        if detail_policy is not None else None
+                    )
                     candidate = TrackEmbeddingCandidate(
                         embedding=embedding,
                         quality_score=quality_score,
@@ -466,7 +523,11 @@ class PersonReIdPipeline:
                         bbox_xyxy=detection.bbox_xyxy,
                         frame_index=frame_index,
                         detection_confidence=detection.confidence,
+                        detail_snapshot=detail_snapshot,
                     )
+                    if detail_snapshot is not None:
+                        prediction.update(detail_label=detail_snapshot.label,
+                                          detail_reliability=detail_snapshot.reliability)
 
                     # Unknown tracks collect several views before their first
                     # database search, reducing decisions based on one weak crop.
@@ -492,86 +553,179 @@ class PersonReIdPipeline:
                         combined_embedding = self._combined_embedding(candidates)
                         best_candidate = self._best_candidate(candidates)
                         quality_average = float(np.mean([item.quality_score for item in candidates]))
-                        match = self.profiles.search(
-                            combined_embedding,
-                            threshold=self.config.match_threshold,
-                            exclude_person_ids=used_person_ids_this_frame,
-                        )
+                        detail_items = [item for item in candidates if item.detail_snapshot is not None]
+                        combined_detail_vector = None
+                        if detail_items:
+                            detail_matrix = np.asarray([item.detail_snapshot.vector for item in detail_items], dtype=np.float32)
+                            detail_weights = np.asarray([max(item.quality_score, .05) for item in detail_items], dtype=np.float32)
+                            combined_detail_vector = np.average(detail_matrix, axis=0, weights=detail_weights)
 
-                        if match is None:
-                            person_id = self.profiles.create_person_id()
-                            score = None
-                            created_persons += 1
+                        if detail_policy is None:
+                            match = self.profiles.search(
+                                combined_embedding,
+                                threshold=self.config.match_threshold,
+                                exclude_person_ids=used_person_ids_this_frame,
+                            )
+                            created_identity = match is None
+                            if created_identity:
+                                person_id = self.profiles.create_person_id()
+                                score = None
+                                created_persons += 1
+                            else:
+                                person_id = match.person_id
+                                score = match.score
+                                matched_events += 1
+                            decision_zone = "new" if created_identity else "matched"
+                            should_store_update = True
+                            state = "created_identity" if created_identity else "matched_identity"
                         else:
-                            person_id = match.person_id
-                            score = match.score
-                            matched_events += 1
+                            profiles = list(self.store.iter_profiles())
+                            matches = detail_policy.rank_profiles(
+                                combined_embedding, combined_detail_vector, profiles,
+                                exclude_person_ids=used_person_ids_this_frame,
+                                bbox_xyxy=best_candidate.bbox_xyxy, frame_index=best_candidate.frame_index,
+                                image_width=width, image_height=height,
+                                recent_person_positions=recent_person_positions,
+                            )
+                            match = matches[0] if matches else None
+                            decision_zone = "empty_db" if not profiles else (
+                                match.decision_zone if match is not None else "low"
+                            )
+                            created_identity = False
+                            should_store_update = False
+                            state = "pending_new_person"
+                            if decision_zone == "empty_db":
+                                person_id = self.profiles.create_person_id()
+                                score = None
+                                created_persons += 1
+                                created_identity = True
+                                should_store_update = True
+                                state = "created_identity"
+                            elif match is not None and decision_zone == "strong":
+                                person_id, score = match.person_id, match.score
+                                matched_events += 1
+                                strong_match_events += 1
+                                should_store_update = True
+                                state = "matched_identity"
+                            elif match is not None and decision_zone == "weak":
+                                person_id, score = match.person_id, match.score
+                                matched_events += 1
+                                pending_weak_match_events += 1
+                                state = "pending_weak_match"
+                            else:
+                                best_score = float(match.score) if match is not None else -1.0
+                                overlaps = any(
+                                    intersection_over_smaller_box(best_candidate.bbox_xyxy, assigned_box)
+                                    >= detail_policy.new_person_overlap_threshold
+                                    for _, assigned_box in assigned_person_boxes_this_frame
+                                )
+                                if overlaps:
+                                    state = "pending_overlapping_detection"
+                                else:
+                                    evidence = track_low_match_evidence.setdefault(detection.track_id, [])
+                                    evidence.append((frame_index, best_score))
+                                    minimum_frame = frame_index - detail_policy.new_person_evidence_window_frames
+                                    evidence[:] = [(idx, value) for idx, value in evidence if idx >= minimum_frame]
+                                    if has_sufficient_new_person_evidence(
+                                        evidence, max_score=detail_policy.new_person_max_score,
+                                        min_events=detail_policy.new_person_min_evidence_events,
+                                        min_span_frames=detail_policy.new_person_min_evidence_span_frames,
+                                        low_match_ratio=detail_policy.new_person_low_match_ratio,
+                                    ):
+                                        person_id = self.profiles.create_person_id()
+                                        score = None
+                                        created_persons += 1
+                                        created_identity = True
+                                        should_store_update = True
+                                        state = "created_identity"
+                                        track_low_match_evidence[detection.track_id] = []
+                                    else:
+                                        person_id = None
+                                        score = best_score if match is not None else None
+                                        pending_new_person_events += 1
 
-                        snapshot_path = save_crop(
-                            best_candidate.crop,
-                            self.paths.snapshot_dir,
-                            person_id,
-                            best_candidate.frame_index,
-                            run_id=run_id,
-                        )
-                        decision = self.profiles.add_or_update_person(
-                            person_id=person_id,
-                            embedding=combined_embedding,
-                            source=self._source_to_label(source),
-                            frame_index=frame_index,
-                            track_id=detection.track_id,
-                            bbox_xyxy=best_candidate.bbox_xyxy,
-                            score=score,
-                            snapshot_path=str(snapshot_path),
-                            payload=self._quality_payload(
-                                run_id=run_id,
-                                event_type="initial_buffer_match",
-                                candidate=best_candidate,
-                                good_frame_count=len(candidates),
-                                quality_average=quality_average,
-                                decision_frame_index=frame_index,
-                            ),
-                            batch=self._embedding_batch(candidates),
-                        )
+                            if match is not None:
+                                prediction.update(
+                                    match_visual_score=match.visual_score,
+                                    match_detail_score=match.detail_score,
+                                    match_detail_weight=match.detail_weight,
+                                    match_motion_bonus=match.motion_bonus,
+                                )
+
+                        if person_id is None:
+                            prediction.update(state=state, match_score=score, decision_zone=decision_zone,
+                                              decision_frame_index=frame_index)
+                            if self.config.draw_debug:
+                                draw_detection(display_frame, detection, None, score)
+                            continue
+
+                        decision = None
+                        snapshot_path = None
+                        if should_store_update:
+                            snapshot_path = save_crop(
+                                best_candidate.crop, self.paths.snapshot_dir, person_id,
+                                best_candidate.frame_index, run_id=run_id,
+                            )
+                            decision = self.profiles.add_or_update_person(
+                                person_id=person_id, embedding=combined_embedding,
+                                source=self._source_to_label(source), frame_index=frame_index,
+                                track_id=detection.track_id, bbox_xyxy=best_candidate.bbox_xyxy,
+                                score=score, snapshot_path=str(snapshot_path),
+                                payload=self._quality_payload(
+                                    run_id=run_id, event_type="initial_buffer_match",
+                                    candidate=best_candidate, good_frame_count=len(candidates),
+                                    quality_average=quality_average, decision_frame_index=frame_index,
+                                    detail_vector=combined_detail_vector, match=match,
+                                ),
+                                batch=self._embedding_batch(candidates),
+                            )
 
                         track_to_person[detection.track_id] = person_id
                         track_to_last_score[detection.track_id] = score
+                        track_is_tentative[detection.track_id] = state == "pending_weak_match"
                         track_candidates[detection.track_id] = []
-                        prediction.update(person_id=person_id, match_score=score,
-                                          state="created_identity" if match is None else "matched_identity",
-                                          decision_frame_index=frame_index, snapshot_frame_index=best_candidate.frame_index)
-                        prediction.update(profile_update_accepted=decision.accepted,
-                                          update_similarity=decision.similarity, profile_update_reason=decision.reason)
-                        if not decision.accepted:
-                            prediction["state"] = "matched_identity_update_rejected"
+                        prediction.update(person_id=person_id, match_score=score, state=state,
+                                          decision_zone=decision_zone, decision_frame_index=frame_index,
+                                          snapshot_frame_index=best_candidate.frame_index if snapshot_path else None)
+                        if decision is not None:
+                            prediction.update(profile_update_accepted=decision.accepted,
+                                              update_similarity=decision.similarity,
+                                              profile_update_reason=decision.reason)
+                            if not decision.accepted:
+                                prediction["state"] = "matched_identity_update_rejected"
 
                     # Known tracks have already passed both quality gates;
                     # the profile service still checks embedding similarity.
                     else:
-                        snapshot_path = save_crop(candidate.crop, self.paths.snapshot_dir, person_id, frame_index, run_id=run_id)
-                        decision = self.profiles.add_or_update_person(
-                            person_id=person_id,
-                            embedding=normalize_vector(candidate.embedding),
-                            source=self._source_to_label(source),
-                            frame_index=frame_index,
-                            track_id=detection.track_id,
-                            bbox_xyxy=detection.bbox_xyxy,
-                            score=score,
-                            snapshot_path=str(snapshot_path),
-                            payload=self._quality_payload(
-                                run_id=run_id,
-                                event_type="quality_gated_update",
-                                candidate=candidate,
-                                good_frame_count=1,
-                                decision_frame_index=frame_index,
-                            ),
-                        )
-                        prediction.update(state="profile_update" if decision.accepted else "profile_update_rejected",
-                                          snapshot_frame_index=frame_index, profile_update_accepted=decision.accepted,
-                                          update_similarity=decision.similarity, profile_update_reason=decision.reason)
+                        if detail_policy is not None and track_is_tentative.get(detection.track_id, False):
+                            prediction.update(state="pending_weak_match", decision_zone="weak")
+                        else:
+                            snapshot_path = save_crop(candidate.crop, self.paths.snapshot_dir, person_id, frame_index, run_id=run_id)
+                            decision = self.profiles.add_or_update_person(
+                                person_id=person_id,
+                                embedding=normalize_vector(candidate.embedding),
+                                source=self._source_to_label(source),
+                                frame_index=frame_index,
+                                track_id=detection.track_id,
+                                bbox_xyxy=detection.bbox_xyxy,
+                                score=score,
+                                snapshot_path=str(snapshot_path),
+                                payload=self._quality_payload(
+                                    run_id=run_id,
+                                    event_type="quality_gated_update",
+                                    candidate=candidate,
+                                    good_frame_count=1,
+                                    decision_frame_index=frame_index,
+                                ),
+                            )
+                            prediction.update(state="profile_update" if decision.accepted else "profile_update_rejected",
+                                              snapshot_frame_index=frame_index, profile_update_accepted=decision.accepted,
+                                              update_similarity=decision.similarity, profile_update_reason=decision.reason)
 
                 if person_id:
                     used_person_ids_this_frame.add(person_id)
+                    recent_person_positions[person_id] = (frame_index, bbox_center(detection.bbox_xyxy))
+                    assigned_person_boxes_this_frame.append((person_id, detection.bbox_xyxy))
 
                 if self.config.draw_debug:
                     draw_detection(
@@ -615,6 +769,10 @@ class PersonReIdPipeline:
             warnings.append(
                 "Some tracks were not assigned immediately because the pipeline waited for enough good frames."
             )
+        if pending_weak_match_events > 0:
+            warnings.append(f"Tentative weak matches without profile update: {pending_weak_match_events}")
+        if pending_new_person_events > 0:
+            warnings.append(f"Low-score observations kept pending before new-person creation: {pending_new_person_events}")
 
         persons = self.profiles.list_persons()
         return PipelineResult(
@@ -631,4 +789,8 @@ class PersonReIdPipeline:
             predictions_path=artifacts.predictions_path,
             tracking_predictions_path=artifacts.tracking_path,
             manifest_path=artifacts.manifest_path,
+            decision_policy="details_tracking_v2" if detail_policy is not None else "main_single_threshold",
+            strong_match_events=strong_match_events,
+            pending_weak_match_events=pending_weak_match_events,
+            pending_new_person_events=pending_new_person_events,
         )

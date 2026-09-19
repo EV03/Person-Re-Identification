@@ -57,6 +57,18 @@ def edit_every_parameter(app):
 
 
 class UiPresetTests(unittest.TestCase):
+    def test_ui_exposes_separate_multi_and_single_person_test_modules(self) -> None:
+        with tempfile.TemporaryDirectory() as folder, patch("app.config.AppPaths", return_value=paths_for(Path(folder))):
+            app = AppTest.from_file("app/ui/streamlit_app.py").run()
+            module = next(widget for widget in app.selectbox if widget.label == "Test module")
+            self.assertEqual(module.options, ["Mehrpersonen- und Trackingtest", "Einzelpersonen- und Detailtest"])
+            self.assertTrue(any(widget.label == "Details_Tracking-Policy auch für 2+ Personen verwenden"
+                                for widget in app.checkbox))
+            module.select("Einzelpersonen- und Detailtest").run()
+            self.assertFalse(app.exception)
+            self.assertTrue(any(widget.label == "Expected person ID (optional)" for widget in app.text_input))
+            self.assertTrue(any(widget.label == "Test condition" for widget in app.text_input))
+
     def test_nonisolated_runs_switch_encoder_database_and_return_to_original(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             paths = paths_for(Path(folder))
