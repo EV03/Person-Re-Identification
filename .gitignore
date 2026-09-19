@@ -5,6 +5,12 @@ __pycache__/
 .DS_Store
 .vscode/
 .idea/
+
+# Local test videos, model weights, and YOLO runtime state
+Test-daten/
+models/
+.runtime/Ultralytics/
+
 data/db/*.sqlite3
 data/db/*.sqlite3-*
 data/input/*
@@ -14,6 +20,16 @@ data/modes/*.json
 data/models/
 data/experiments/
 data/cache/
+
+# Generated evaluation and runtime artifacts
+data/evaluation_runs/
+data/evaluation_suites/
+data/smoke_test/
+data/backups/
+data/g1_g4_manifest.csv
+data/db/**/*.sqlite3
+data/db/**/*.sqlite3-*
+
 output/
 tmp/
 *.aux
@@ -24,3 +40,5 @@ tmp/
 !data/output/.gitkeep
 !data/snapshots/.gitkeep
 !data/db/.gitkeep
+.data/
+.Test-daten/
