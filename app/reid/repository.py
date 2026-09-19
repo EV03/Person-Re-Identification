@@ -42,6 +42,18 @@ class ProfileUpdateDecision:
 
 
 @dataclass(frozen=True)
+class ProfileSearchDecision:
+    """Explain one profile search, including rejected best candidates."""
+
+    match: MatchResult | None
+    best_person_id: str | None
+    best_score: float | None
+    reason: str
+    eligible_profile_count: int
+    excluded_person_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class ProfileObservation:
     person_id: str
     source: str
@@ -87,6 +99,8 @@ class ProfileManager(Protocol):
 
     def search(self, embedding: np.ndarray, threshold: float,
                exclude_person_ids: set[str] | None = None) -> MatchResult | None: ...
+    def search_with_diagnostics(self, embedding: np.ndarray, threshold: float,
+                                exclude_person_ids: set[str] | None = None) -> ProfileSearchDecision: ...
     def create_person_id(self) -> str: ...
     def add_or_update_person(self, person_id: str, embedding: np.ndarray, source: str,
                              frame_index: int, track_id: int, bbox_xyxy: tuple[int, int, int, int],

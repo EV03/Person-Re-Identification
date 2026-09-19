@@ -8,11 +8,11 @@ from app.modes.base_mode import ModeConfig
 
 
 def build_default_mode() -> ModeConfig:
-    """B0: OSNet, quality gates and three initial observations."""
+    """B0: OSNet, quality gates and five spaced initial observations."""
     return ModeConfig(
         mode_id="default",
         name="B0 - OSNet",
-        description="Referenz: OSNet, qualitätsgefilterte Crops und drei Initialbeobachtungen.",
+        description="Referenz: OSNet, qualitätsgefilterte Crops und fünf zeitlich getrennte Initialbeobachtungen.",
     )
 
 
@@ -33,8 +33,10 @@ def build_no_quality_thresholds_mode() -> ModeConfig:
         build_default_mode(),
         mode_id="no_quality_thresholds",
         name="A2 - Ohne Qualitätsschwellen",
-        description="B0 mit beiden Qualitätsschwellen auf null; Mindestgrößen und Gewichtung bleiben erhalten.",
+        description="B0 mit allen Qualitätsschwellen auf null; Mindestgrößen und Gewichtung bleiben erhalten.",
         min_embedding_quality=0.0,
+        min_initial_blur_score=0.0,
+        min_border_blur_score=0.0,
         min_update_quality=0.0,
     )
 

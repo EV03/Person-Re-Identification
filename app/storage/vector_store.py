@@ -315,6 +315,21 @@ class SQLiteVectorStore:
                 record["match_motion_bonus"] = explanation.get("motion_bonus")
                 record["decision_zone"] = explanation.get("decision_zone")
                 record["match_reason"] = explanation.get("summary")
+            if not record.get("match_reason"):
+                record["match_reason"] = payload.get("match_reason")
+            record["best_match_person_id"] = payload.get("best_match_person_id")
+            record["best_match_score"] = payload.get("best_match_score")
+            record["match_threshold"] = payload.get("match_threshold")
+            record["eligible_profile_count"] = payload.get("eligible_profile_count")
+            record["profile_update_accepted"] = payload.get("profile_update_accepted")
+            record["update_similarity"] = payload.get("update_similarity")
+            record["profile_update_reason"] = payload.get("profile_update_reason")
+            record["snapshot_path_relative_to_artifact_root"] = payload.get(
+                "snapshot_path_relative_to_artifact_root"
+            )
+            quality_details = payload.get("quality_details") or {}
+            for name in ("blur", "brightness", "size", "aspect_ratio", "edge_cutoff", "detection_confidence"):
+                record[f"quality_{name}"] = quality_details.get(name)
             records.append(record)
 
         return pd.DataFrame(records)

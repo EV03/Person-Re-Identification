@@ -8,7 +8,7 @@ Die quantitative Evaluation wurde noch nicht durchgeführt.
 - Videos und lokale Webcam als Quelle.
 - YOLO-Personendetektion mit ByteTrack; BoT-SORT bleibt eine auswählbare Alternative.
 - Person-Crops, geometrische Mindestgrößen und heuristische Qualitätsbewertung.
-- Drei gute Initialbeobachtungen, qualitätsgewichtete Embeddings und Profilupdates.
+- Fünf zeitlich getrennte Initialbeobachtungen, qualitätsgewichtete Embeddings und Profilupdates.
 - OSNet-Adapter und Farbhistogramm als Vergleichsencoder.
 - Cosine Matching, synthetische Personen-IDs und SQLite.
 - Annotierte Videos, Vorschau, CLI und ReID-Presets in Streamlit.
@@ -17,9 +17,9 @@ Die quantitative Evaluation wurde noch nicht durchgeführt.
 
 | Preset | Konfiguration | Unterschied zu B0 |
 |---|---|---|
-| `default` | B0 | Referenz: OSNet, Schwellen 0,55 / 0,65 |
+| `default` | B0 | Referenz: OSNet, Match 0,75, Qualität 0,55 / 0,65 und Schärfe 0,40 / 0,70 |
 | `colorhist` | A1 | Nur der Encoder wird ersetzt |
-| `no_quality_thresholds` | A2 | Nur die beiden Annahmeschwellen werden null |
+| `no_quality_thresholds` | A2 | Qualitäts- und Initialschärfeschwellen werden null |
 | `no_update_similarity` | A3 | Nur der Update-Ähnlichkeitsschutz wird mit -1 deaktiviert |
 | `details_tracking` | D1 | Detail-Re-Ranking, Strong/Weak/Low-Zonen, Evidenz vor neuen IDs und begrenzter räumlicher Bonus |
 | `details_no_reranking` | D2 | D1 ohne Detail-Registry und Re-Ranking |
@@ -36,11 +36,13 @@ Sie enthalten zunächst dieselben sonstigen Parameter. CLI/UI-Overrides
 sind möglich und müssen als Konfigurationsänderung aufgezeichnet werden.
 
 Die UI lädt Presets in einen gemeinsamen, vollständigen Pipeline-Editor. Starten
-und "Aktuelle Einstellungen speichern" verwenden dieselben Parameter. Geänderte
+und die Speicheraktionen verwenden dieselben Parameter. Geänderte
 Läufe werden im Namen markiert; die effektive Pipeline-Konfiguration ist einsehbar
 und wird vollständig in `analysis_runs.metadata_json` festgehalten. Das Speichern
-erstellt ein neues Preset und lädt es; vorhandene Presets werden nicht überschrieben.
-Alle fünf konfigurierbaren Matching-/Konfidenz-/Qualitätsschwellen, Mindestgrößen
+unter neuer ID erstellt ein Preset und lädt es. Ein ausgewähltes eigenes Preset
+kann über eine getrennte Aktion aktualisiert werden; die vier eingebauten Presets
+können nicht überschrieben werden.
+Alle konfigurierbaren Matching-, Konfidenz-, Qualitäts- und Überlappungsschwellen, Mindestgrößen
 und zeitlichen Parameter sind editierbar. Tracker-interne Schwellen bleiben in der
 Tracker-YAML, Konstanten und Gewichte der Qualitätsheuristik bleiben unverändert.
 Diese Einstellbarkeit dient Pilotversuchen, nicht einer Nachkalibrierung auf Testclips.

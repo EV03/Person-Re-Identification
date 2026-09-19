@@ -96,7 +96,7 @@ Anschließend ermittelt das System Schärfe, Helligkeit, Grö{\ss}e, Seitenverh�
 Gewichte aus dem Training auf MSMT17 stammen~\cite{torchreid-modelzoo}. Eigenes Training oder 
 Fine-Tuning findet nicht statt.
 
-Sobald drei beliebige Ausschnitte einer Spur die Qualitätsschwelle erfüllen, werden ihre normalisierten Embedding $z_i$ qualitätsgewichtet zusammengeführt:
+Sobald fünf Ausschnitte einer Spur die Qualitätsschwelle erfüllen, werden ihre normalisierten Embeddings $z_i$ qualitätsgewichtet zusammengeführt. Zwischen zwei angenommenen Ausschnitten liegen mindestens drei Frames, damit nicht nur nahezu identische Nachbarbilder in das Initialprofil eingehen:
 \begin{equation}
 \bar z=\operatorname{norm}\left(\frac{\sum_i w_i z_i}{\sum_i w_i}\right),
 \qquad w_i=\max(Q_i,0{,}05).
@@ -123,7 +123,7 @@ selbst aber unverändert.
 \label{sec:profile-update}
 
 Sobald eine Spur eine Personenkennung besitzt, wird die Suche nach einem Profil abgeschlossen. Standardmäßig
-wird nur alle fünf Frames ein Profilupdate mit dem Personenausschnitt der Spur aus genau diesem Frame versucht. 
+wird nur alle fünf Frames ein Profilupdate mit dem Personenausschnitt der Spur aus genau diesem Frame versucht.
 
 Für ein Update muss der Ausschnitt die geometrischen Mindestanforderungen. Sein Qualitätswert $Q$ wird dabei wie in Abschnitt~\ref{sec:new-profile} berechnet, muss aber die Updatequalitätsschwelle erreichen, die in der Referenzkonfiguration höher liegt als die Kandidatenschwelle.
 Ebenfalls muss sein Embedding laut Gleichung~\ref{eq:cosine} mindestens die Update-Ähnlichkeitsschwelle zum aktuell zugeordneten Profil erreichen.
@@ -139,7 +139,7 @@ Embeddingsumme $S$ und die Gewichtssumme $W$. Für ein neues Embedding $z$ mit G
 S_{\mathrm{neu}}=S+wz,\qquad W_{\mathrm{neu}}=W+w,\qquad 
 p_{\mathrm{neu}}=\operatorname{norm}(S_{\mathrm{neu}}/W_{\mathrm{neu}}).
 \end{equation}
-Die drei Initialbeobachtungen bleiben damit erhalten. Jedes weitere Update ergänzt sie, statt sie zu ersetzen.
+Die fünf Initialbeobachtungen bleiben damit erhalten. Jedes weitere Update ergänzt sie, statt sie zu ersetzen.
 Die genaue Herleitung steht in Anhang~\ref{app:profile-details}.
 
 \subsection{Profilbestände und Modellwechsel}
@@ -193,7 +193,7 @@ Jede Konfiguration beginnt pro Versuchseinheit mit einem frischen Tracker und ei
 
 Für die Pilotkalibrierung wurden separate Aufnahmen mit Rückkehr, ähnlicher Kleidung und Verdeckung verwendet. Diese Aufnahmen gehören nicht zum späteren Testbestand. Matching-Schwelle, Update-Ähnlichkeit sowie Kandidaten- und Updatequalität wurden nacheinander geprüft. Anschlie{\ss}end wurde die ausgewählte Kombination gemeinsam kontrolliert. Das vollständige Suchraster und das Auswahlprotokoll stehen in Anhang~\ref{app:pilot-details}.
 
-Für B0 wurden eine Matching-Schwelle von 0,82, eine Kandidatenqualität von 0,55, eine Updatequalität von 0,65 und eine Update-Ähnlichkeit von 0,82 ausgewählt. Für A1 wurden Matching und Update-Ähnlichkeit wegen der unterschiedlichen Scoreverteilung des Farbhistogramms separat geprüft, wobei ebenfalls jeweils 0,82 ausgewählt wurde.
+Für B0 gelten als Ausgangswerte eine Matching-Schwelle von 0,75, eine Kandidatenqualität von 0,55, eine Updatequalität von 0,65 und eine Update-Ähnlichkeit von 0,82. A1 übernimmt zunächst diese Werte; Matching und Update-Ähnlichkeit müssen wegen der unterschiedlichen Scoreverteilung des Farbhistogramms separat geprüft werden.
 
 Die in Tabelle~\ref{tab:defaults} aufgeführten Rahmenparameter blieben während der Pilotkalibrierung konstant und werden für die Testläufe beibehalten.
 
@@ -209,7 +209,7 @@ Parameter & Wert \\
 Detektionsmodell / Tracker & YOLOv8n / ByteTrack \\
 Detektionskonfidenz & 0,35 \\
 Eingangsgrö{\ss}e für YOLO & 640 Pixel \\
-Updateintervall / Initialbeobachtungen & 5 Frames / 3 \\
+Updateintervall / Initialbeobachtungen / Kandidatenabstand & 5 Frames / 5 / 3 Frames \\
 Minimale Cropgrö{\ss}e & $30\times80$ Pixel \\
 Crop-Padding & 0,05 \\
 \bottomrule
@@ -227,10 +227,10 @@ Tabelle~\ref{tab:variants} zeigt die vier nach der Pilotkalibrierung festgelegte
 \toprule
 Variante & Encoder & Matching & Qualität & Update-Schutz \\
 \midrule
-B0: vollständig & OSNet & 0,82 & 0,55 / 0,65 & 0,82 \\
-A1: einfacher Encoder & Histogramm & 0,82 & 0,55 / 0,65 & 0,82 \\
-A2: ohne Qualitätsschwellen & OSNet & 0,82 & 0 / 0 & 0,82 \\
-A3: ohne Update-Schutz & OSNet & 0,82 & 0,55 / 0,65 & aus ($-1$) \\
+B0: vollständig & OSNet & 0,75 & 0,55 / 0,65 & 0,82 \\
+A1: einfacher Encoder & Histogramm & 0,75 & 0,55 / 0,65 & 0,82 \\
+A2: ohne Qualitätsschwellen & OSNet & 0,75 & 0 / 0 & 0,82 \\
+A3: ohne Update-Schutz & OSNet & 0,75 & 0,55 / 0,65 & aus ($-1$) \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -414,7 +414,7 @@ Schritt 1 begann mit den übrigen Rahmenparametern aus Tabelle~\ref{tab:defaults
 
 Für die Auswahl wurden auf demselben Pilotereignisbestand zunächst falsche Personen-ID-Zuordnungen betrachtet. Danach wurden die Anzahl korrekter Rückkehr- und Eintrittsentscheidungen sowie die mediane Zeit bis zur korrekten Kennung berücksichtigt. Ausbleibende Entscheidungen, falsche neue Kennungen und Fehlregistrierungen gingen als Misserfolge ein. Bei der Update-Ähnlichkeit wurden zusätzlich falsche akzeptierte und korrekte abgelehnte Updates in den annotierten Übergangsfenstern gegenübergestellt.
 
-Auf dieser Grundlage wurden für B0 eine Matching-Schwelle von 0,82, das Qualitätspaar 0,55/0,65 und eine Update-Ähnlichkeit von 0,82 ausgewählt. Für A1 ergab die separate Prüfung ebenfalls 0,82 für Matching und Update-Ähnlichkeit; das Qualitätspaar wurde von B0 übernommen. Die dargestellte Auswahl gilt für die verwendeten Pilotaufnahmen. Das begrenzte Raster belegt keine global optimalen Parameter.
+Als Ausgangskonfiguration werden für B0 eine Matching-Schwelle von 0,75, das Qualitätspaar 0,55/0,65 und eine Update-Ähnlichkeit von 0,82 verwendet. A1 übernimmt diese Startwerte, muss wegen der anderen Scoreverteilung aber separat auf Pilotdaten geprüft werden. Das begrenzte Raster belegt keine global optimalen Parameter.
 
 Nach der Pilotkalibrierung wurden die vier Konfigurationen aus Tabelle~\ref{tab:variants} für die noch ausstehenden Haupttests eingefroren. Änderungen aufgrund der Testergebnisse erfordern eine neue, getrennt ausgewiesene Untersuchung.
 

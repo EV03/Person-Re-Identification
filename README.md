@@ -63,20 +63,21 @@ automatische Paketinstallationen während der Verarbeitung sind deaktiviert.
 
 | CLI-Preset | Paper | Encoder | Kandidaten-/Updateschwelle |
 |---|---|---|---|
-| `default` | B0 | OSNet | 0,55 / 0,65 |
-| `colorhist` | A1 | HSV-Farbhistogramm | 0,55 / 0,65 |
+| `default` | B0 | OSNet | 0,55 / 0,65; Schärfe 0,40 / 0,70 |
+| `colorhist` | A1 | HSV-Farbhistogramm | 0,55 / 0,65; Schärfe 0,40 / 0,70 |
 | `no_quality_thresholds` | A2 | OSNet | 0 / 0 |
-| `no_update_similarity` | A3 | OSNet | 0,55 / 0,65 |
-| `details_tracking` | D1 | OSNet + vollständige Details-Policy | 0,55 / 0,65 |
-| `details_no_reranking` | D2 | D1 ohne Detail-Re-Ranking | 0,55 / 0,65 |
-| `details_no_weak_zone` | D3 | D1 ohne Weak-Zone | 0,55 / 0,65 |
-| `details_immediate_new_person` | D4 | D1 ohne verzögerte Neuanlage | 0,55 / 0,65 |
-| `details_no_overlap_protection` | D5 | D1 ohne Überlappungsschutz | 0,55 / 0,65 |
-| `details_no_motion_bonus` | D6 | D1 ohne Motion-Bonus | 0,55 / 0,65 |
+| `no_update_similarity` | A3 | OSNet | 0,55 / 0,65; Schärfe 0,40 / 0,70 |
+| `details_tracking` | D1 | OSNet + vollständige Details-Policy | 0,55 / 0,65; Schärfe 0,40 / 0,70 |
+| `details_no_reranking` | D2 | D1 ohne Detail-Re-Ranking | 0,55 / 0,65; Schärfe 0,40 / 0,70 |
+| `details_no_weak_zone` | D3 | D1 ohne Weak-Zone | 0,55 / 0,65; Schärfe 0,40 / 0,70 |
+| `details_immediate_new_person` | D4 | D1 ohne verzögerte Neuanlage | 0,55 / 0,65; Schärfe 0,40 / 0,70 |
+| `details_no_overlap_protection` | D5 | D1 ohne Überlappungsschutz | 0,55 / 0,65; Schärfe 0,40 / 0,70 |
+| `details_no_motion_bonus` | D6 | D1 ohne Motion-Bonus | 0,55 / 0,65; Schärfe 0,40 / 0,70 |
 
-Alle Presets verwenden zunächst YOLOv8n, ByteTrack, Cosine-Schwellwert 0,82,
-Detektionskonfidenz 0,35, Eingangsgröße 640, drei Initialbeobachtungen und Updates
-alle fünf Frames. Die Mindest-Crop-Größe beträgt 30 x 80 Pixel.
+Alle Presets verwenden zunächst YOLOv8n, ByteTrack, Cosine-Schwellwert 0,75,
+Detektionskonfidenz 0,35, Eingangsgröße 640, fünf Initialbeobachtungen im Abstand
+von drei Frames und Updates alle fünf Frames. Die Mindest-Crop-Größe beträgt
+30 x 80 Pixel.
 A2 behält Mindestgrößen, Qualitätsgewichtung und Snapshot-Auswahl bei.
 A3 verändert nur `min_update_similarity` auf -1: Updates und Qualitätsgrenzen
 bleiben aktiv, die zusätzliche Ähnlichkeitsprüfung ist aus. Die anderen Presets
@@ -128,9 +129,10 @@ In der UI ist "Isolierter Lauf (neue Datenbank)" standardmäßig aktiv.
 
 CLI-Optionen überschreiben das Preset. In der UI können Parameter ebenfalls
 angepasst werden. Es gibt einen gemeinsamen Editor: Preset laden, Parameter
-bearbeiten und entweder starten oder die aktuellen Werte als neues Preset speichern.
+bearbeiten und entweder starten, die aktuellen Werte als neues Preset speichern
+oder ein ausgewähltes eigenes Preset aktualisieren.
 Alle Laufzeitparameter aus `PipelineConfig` haben genau ein Eingabefeld. Dazu
-gehören alle fünf konfigurierbaren Konfidenz-/Matching-/Qualitätsschwellen,
+gehören alle konfigurierbaren Konfidenz-, Matching-, Qualitäts- und Überlappungsschwellen,
 Crop-Mindestgrößen, Padding und zeitliche Parameter. Schwellen lassen sich auch
 als genaue Dezimalwerte eingeben. Interne Tracker-Schwellen gehören zur gewählten
 Tracker-YAML; die festen Konstanten der Qualitätsheuristik werden nicht verändert.
@@ -141,8 +143,9 @@ den Nullwert beim Tracking durch seinen Standardwert 0,1 ersetzen.
 gespeicherte Werte; "Änderungen verwerfen / Preset neu laden" setzt den Editor zurück.
 Ein veränderter Lauf wird als "(geändert)" markiert. Die effektive Konfiguration
 ist vor dem Start einsehbar und wird vollständig in den Laufmetadaten gespeichert.
-Nach dem Speichern wird das neue Preset automatisch geladen. Referenzpresets und
-bestehende eigene Presets können dabei nicht überschrieben werden.
+Nach dem Speichern wird das Preset automatisch geladen. Referenzpresets können
+nicht überschrieben werden; für eigene Presets gibt es eine ausdrücklich
+beschriftete Aktualisierungsaktion bei unveränderter Preset-ID.
 
 Quelle, Testmodul, Vorschauanzeige und Vorschau-Breite sind keine
 Pipeline-Presetparameter. Das Testmodul bestimmt nur die Auswertung; Mehrpersonen-

@@ -110,6 +110,85 @@ class PipelineQualityGateTests(unittest.TestCase):
         self.assertEqual(profiles[0].observations, 3)
         self.assertAlmostEqual(profiles[0].embedding_weight_sum, .55 + .60 + .55)
 
+    def test_initial_candidates_are_spaced_by_the_configured_frame_interval(self):
+        box = Detection(7, (2, 5, 25, 44), .9)
+        config = replace(
+            config_for_test(), min_good_frames_before_reid=3,
+            initial_candidate_every_n_frames=3,
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            pipeline, result, _, _ = execute_pipeline(
+                paths_for(Path(folder)), [[box]] * 7, config=config,
+            )
+            frames = [json.loads(line) for line in result.predictions_path.read_text().splitlines()]
+            observations = pipeline.store.iter_profiles()[0].observations
+
+        self.assertEqual(len(pipeline.encoder.crops), 3)
+        self.assertEqual(observations, 3)
+        self.assertEqual([frame["detections"][0]["state"] for frame in frames], [
+            "waiting_for_initial_observations",
+            "waiting_for_candidate_interval",
+            "waiting_for_candidate_interval",
+            "waiting_for_initial_observations",
+            "waiting_for_candidate_interval",
+            "waiting_for_candidate_interval",
+            "created_identity",
+        ])
+
+    def test_initial_blur_and_border_blur_have_separate_hard_gates(self):
+        box = Detection(7, (2, 5, 25, 44), .9)
+        config = replace(
+            config_for_test(), min_good_frames_before_reid=2,
+            min_initial_blur_score=.40, min_border_blur_score=.45,
+        )
+        quality_results = [
+            (.8, {"blur": .39, "edge_cutoff": 1.0}),
+            (.8, {"blur": .42, "edge_cutoff": .65}),
+            (.8, {"blur": .45, "edge_cutoff": .65}),
+            (.8, {"blur": .40, "edge_cutoff": 1.0}),
+        ]
+        with tempfile.TemporaryDirectory() as folder, patch(
+            "app.pipeline.orchestrator.crop_quality_score", side_effect=quality_results,
+        ):
+            pipeline, result, _, _ = execute_pipeline(
+                paths_for(Path(folder)), [[box]] * 4, config=config,
+            )
+            frames = [json.loads(line) for line in result.predictions_path.read_text().splitlines()]
+            manifest = json.loads(result.manifest_path.read_text())
+
+        predictions = [frame["detections"][0] for frame in frames]
+        self.assertEqual([item["state"] for item in predictions], [
+            "below_initial_blur", "below_border_blur",
+            "waiting_for_initial_observations", "created_identity",
+        ])
+        self.assertEqual([item["initial_candidate_count"] for item in predictions], [0, 0, 1, 2])
+        self.assertEqual(len(pipeline.encoder.crops), 2)
+        self.assertEqual(manifest["summary"]["below_initial_blur"], 1)
+        self.assertEqual(manifest["summary"]["below_border_blur"], 1)
+
+    def test_initial_blur_gates_do_not_reject_updates_of_known_tracks(self):
+        box = Detection(7, (2, 5, 25, 44), .9)
+        config = replace(
+            config_for_test(), min_good_frames_before_reid=1,
+            min_initial_blur_score=.40, min_border_blur_score=.45,
+        )
+        quality_results = [
+            (.8, {"blur": .9, "edge_cutoff": 1.0}),
+            (.8, {"blur": .1, "edge_cutoff": .65}),
+        ]
+        with tempfile.TemporaryDirectory() as folder, patch(
+            "app.pipeline.orchestrator.crop_quality_score", side_effect=quality_results,
+        ):
+            pipeline, result, _, _ = execute_pipeline(
+                paths_for(Path(folder)), [[box]] * 2, config=config,
+            )
+            frames = [json.loads(line) for line in result.predictions_path.read_text().splitlines()]
+
+        self.assertEqual([frame["detections"][0]["state"] for frame in frames], [
+            "created_identity", "profile_update",
+        ])
+        self.assertEqual(len(pipeline.encoder.crops), 2)
+
     def test_known_track_below_update_quality_never_calls_encoder(self):
         calls, profiles, predictions, result = self.run_quality_sequence([.7, .60])
         self.assertEqual(calls, 1)
@@ -161,6 +240,48 @@ class PipelineQualityGateTests(unittest.TestCase):
         for index in (1, 2, 3, 5, 6, 7, 8):
             self.assertEqual(predictions[index]["state"], "known_track")
             self.assertIsNone(predictions[index]["quality_score"])
+
+    def test_overlapping_people_never_reach_encoder_or_create_profiles(self):
+        first = Detection(1, (2, 5, 35, 44), .9)
+        second = Detection(2, (20, 5, 55, 44), .9)
+        with tempfile.TemporaryDirectory() as folder:
+            pipeline, result, _, _ = execute_pipeline(
+                paths_for(Path(folder)), [[first, second]],
+                config=replace(config_for_test(), min_good_frames_before_reid=1),
+            )
+            frame = json.loads(result.predictions_path.read_text().splitlines()[0])
+            encoded_crops = len(pipeline.encoder.crops)
+            person_count = pipeline.store.count_persons()
+
+        self.assertEqual(encoded_crops, 0)
+        self.assertEqual(person_count, 0)
+        self.assertEqual([item["state"] for item in frame["detections"]],
+                         ["overlapping_person", "overlapping_person"])
+        self.assertTrue(all(item["person_overlap_ratio"] > .15 for item in frame["detections"]))
+        self.assertIn("Skipped ReID crops due to person overlap or cooldown: 2", result.warnings)
+
+    def test_overlap_starts_cooldown_before_profile_updates_resume(self):
+        tracked = Detection(1, (2, 5, 25, 44), .9)
+        crossing = Detection(2, (15, 5, 38, 44), .9)
+        sequence = [[tracked], [tracked, crossing], [tracked], [tracked], [tracked]]
+        config = replace(
+            config_for_test(), min_good_frames_before_reid=1,
+            max_person_overlap_ratio=.15, overlap_cooldown_frames=2,
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            pipeline, result, _, _ = execute_pipeline(
+                paths_for(Path(folder)), sequence, config=config,
+            )
+            frames = [json.loads(line) for line in result.predictions_path.read_text().splitlines()]
+            encoded_crops = len(pipeline.encoder.crops)
+            observations = pipeline.store.iter_profiles()[0].observations
+
+        self.assertEqual(encoded_crops, 2)
+        self.assertEqual(observations, 2)
+        self.assertEqual(frames[1]["detections"][0]["state"], "overlapping_person")
+        self.assertEqual(frames[2]["detections"][0]["state"], "overlap_cooldown")
+        self.assertEqual(frames[3]["detections"][0]["state"], "overlap_cooldown")
+        self.assertEqual(frames[4]["detections"][0]["state"], "profile_update")
 
 
 class ProfileProtectionTests(unittest.TestCase):
