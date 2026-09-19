@@ -108,7 +108,7 @@ def render_pipeline_editor() -> dict[str, object]:
         ("min_good_frames_before_reid", "Min good frames before first ReID match", 1, "Anzahl akzeptierter Beobachtungen vor der ersten Identitätsentscheidung."),
         ("reid_every_n_frames", "ReID every N frames", 1, "Update-Intervall bekannter Tracks; unbekannte Tracks sammeln Kandidaten in jedem Frame."),
         ("image_size", "Image size", 32, "YOLO-Eingangsgröße; Vielfache von 32 verwenden."),
-        ("max_frames", "Max frames (0 = vollständiges Video)", 0, "Für vollständige Evaluationsclips 0 setzen."),
+        ("max_frames", "Max frames (0 = vollständiges Video)", 0, "Begrenzt hochgeladene Videos. Für Webcam-Läufe gilt die separat eingestellte Aufnahmedauer."),
     ):
         st.number_input(label, min_value=minimum, step=1, key=f"pipeline_{field}", help=help_text)
     st.number_input("Crop padding", min_value=0.0, step=0.01, format="%.4f",
@@ -213,6 +213,7 @@ with st.sidebar:
 source: str | int | CameraSource | None = None
 uploaded_file = None
 selected_camera_source: CameraSource | None = None
+live_capture_seconds: float | None = None
 
 if input_type == "Video upload":
     uploaded_file = st.file_uploader("Upload a video", type=["mp4", "mov", "avi", "mkv"])
@@ -231,6 +232,14 @@ else:
         "Die Webcam wird auf dem Rechner geöffnet, auf dem Streamlit läuft. "
         "Das ist eine lokale OpenCV-Auswahl, nicht die Browser-MediaDevices-Auswahl."
     )
+    live_capture_seconds = float(st.number_input(
+        "Live-Aufnahmedauer (Sekunden)",
+        min_value=1,
+        max_value=3600,
+        value=30,
+        step=5,
+        help="Die Pipeline stoppt den Webcam-Lauf nach dieser real verstrichenen Zeit automatisch. Die Modellladezeit zählt nicht dazu.",
+    ))
 
     backend_options = [name for name, _ in camera_backends()]
     default_backend_index = 0 if "dshow" in backend_options else len(backend_options) - 1
@@ -341,7 +350,12 @@ if run_clicked and source is not None:
         run_paths = paths_for_encoder(run_paths, config)
         st.session_state["last_run_paths"] = run_paths
         pipeline = PersonReIdPipeline(config=config, paths=run_paths)
-        result = pipeline.process(source, progress_callback=update_progress, frame_callback=update_live_preview)
+        result = pipeline.process(
+            source,
+            progress_callback=update_progress,
+            frame_callback=update_live_preview,
+            max_duration_seconds=live_capture_seconds if isinstance(source, CameraSource) else None,
+        )
     except Exception as exc:
         st.error(str(exc))
         failure_manifest = getattr(pipeline, "last_manifest_path", None)

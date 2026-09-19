@@ -200,6 +200,9 @@ class UiPresetTests(unittest.TestCase):
                 edit_every_parameter(app)
                 next(w for w in app.radio if w.label == "Input type").set_value("Local webcam").run()
                 next(w for w in app.checkbox if w.label == "Use manual camera index").check().run()
+                duration = next(w for w in app.number_input if w.label == "Live-Aufnahmedauer (Sekunden)")
+                self.assertEqual(duration.value, 30)
+                duration.set_value(45).run()
                 next(w for w in app.button if w.label.startswith("Run ")).click().run()
                 self.assertFalse(app.exception)
                 constructor.assert_called_once()
@@ -207,6 +210,7 @@ class UiPresetTests(unittest.TestCase):
                 self.assertEqual(runtime_parameters(config), EDITED_PARAMETERS)
                 self.assertEqual(config.mode_name, "B0 - OSNet (geändert)")
                 constructor.return_value.process.assert_called_once()
+                self.assertEqual(constructor.return_value.process.call_args.kwargs["max_duration_seconds"], 45.0)
 
 
 if __name__ == "__main__":

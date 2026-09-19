@@ -129,7 +129,8 @@ zwischen Varianten vergleichen. Je Rückkehr festhalten:
 
 Die Haupt-Erfolgsrate ist `erste rechtzeitige alte ID korrekt / alle auswertbaren
 Rückkehrereignisse`. Zusätzlich die Rate für zuvor richtig registrierte Personen,
-für Rückkehr mit Track-Neustart und die Stabilitätskontrolle mit jeweiligen Nennern
+für Rückkehr mit Track-Neustart oder ohne erhaltenen Track und die
+Stabilitätskontrolle mit jeweiligen Nennern
 berichten. Keine anfängliche falsche Entscheidung rückwirkend durch spätere
 Korrekturen ersetzen. Die Zeit bis zur korrekten ID nur zusammen mit der Erfolgsrate
 und den Misserfolgen angeben.
@@ -141,12 +142,16 @@ Systemfehler, kein Grund zum Entfernen aus dem Nenner. Unbekannte Eintritte sind
 korrekt, wenn rechtzeitig eine neue, keiner registrierten Person gehörende ID entsteht.
 
 In den G4-Fenstern alle protokollierten Profilupdateversuche anhand von Crop,
-Frame und registriertem Profileigentümer prüfen. Zählen: falsche akzeptierte
+zeitlichem Kontext im Referenzvideo und registriertem Profileigentümer prüfen.
+Für strittige Zuordnungen ist die Prüfung durch das zweite Projektmitglied
+vorgesehen. Bleibt etwa bei Verdeckung oder mehreren plausiblen Personen die
+Zuordnung ungeklärt, den Crop als uneindeutig separat zählen und nur aus den
+Anteilsnennern dieser Profilupdate-Teilanalyse ausnehmen. Zählen: falsche akzeptierte
 Updates / akzeptierte auswertbare Versuche und korrekte abgelehnte Updates /
-abgelehnte auswertbare Versuche. Uneindeutige Crops und Fenster ohne Updateversuche
-separat ausweisen; Nenner 0 heißt nicht anwendbar, nicht 0 % Fehler. Zusätzlich
-die falschen Personenzuordnungen an diesen Übergängen beschreiben. Ein geschütztes
-Profil repariert nicht automatisch eine falsche Tracker-/Personenzuordnung.
+abgelehnte auswertbare Versuche. Fenster ohne Updateversuche separat ausweisen;
+Nenner 0 heißt nicht definiert (`n. d.`), nicht 0 % Fehler. Zusätzlich die falschen
+Personenzuordnungen an diesen Übergängen beschreiben. Ein geschütztes Profil
+repariert nicht automatisch eine falsche Tracker-/Personenzuordnung.
 
 Die Aussagen gelten für diese Ereignisse/Fenster. Keine vollständigen Precision-/
 Recall-, IDF1- oder ID-Switch-Zahlen daraus ableiten. TrackEval und dichte

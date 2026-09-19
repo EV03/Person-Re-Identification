@@ -142,9 +142,11 @@ class RunArtifacts:
             self._frames.close()
             raise
 
-    def set_video(self, *, fps: float, frame_count: int | None, width: int, height: int, fps_fallback: bool) -> None:
+    def set_video(self, *, fps: float, frame_count: int | None, width: int, height: int,
+                  fps_fallback: bool, capture_duration_limit_seconds: float | None = None) -> None:
         self.metadata["video"] = {"fps": fps, "declared_frames": frame_count,
                                   "width": width, "height": height, "fps_fallback": fps_fallback,
+                                  "capture_duration_limit_seconds": capture_duration_limit_seconds,
                                   "timestamp_limit": "Nominal FPS timestamps; variable-frame-rate PTS are not recovered."}
         atomic_json(self.manifest_path, self.metadata)
 

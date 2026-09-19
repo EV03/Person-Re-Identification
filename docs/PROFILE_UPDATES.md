@@ -46,9 +46,15 @@ S als `embedding_sum`, W als `embedding_weight_sum` und p als `mean_embedding`.
 `observations` zählt akzeptierte Einzel-Crops, also zunächst drei, nicht ein Batch.
 Der beste Crop liefert den Snapshot, aber nicht mehr das Gesamtgewicht des Batches.
 
-Für einen bekannten Track wird standardmäßig alle fünf Frames ein einzelner
-Crop geprüft. Er muss Mindestgrößen und beide Qualitätsschwellen erfüllen.
-Dann wird dessen Embedding mit dem **bisherigen** Personenprofil verglichen:
+Für einen bekannten Track wird standardmäßig im Videoframe 5, 10, 15 usw.
+der aktuelle Crop geprüft; es wird nicht der beste Crop aus fünf Frames gewählt.
+Er muss Mindestgrößen und beide Qualitätsschwellen erfüllen, bevor der Encoder
+aufgerufen wird. Der Qualitätswert wird einmal berechnet; effektiv gilt die
+höhere Grenze aus `min_embedding_quality` und `min_update_quality`.
+Neue, noch nicht zugeordnete Tracks benötigen nur die Kandidatenqualität und
+sammeln ihre Initialbeobachtungen unabhängig vom Updateintervall.
+Das Embedding eines für ein Update zugelassenen Crops wird anschließend
+mit dem **bisherigen** Personenprofil verglichen:
 
 ```text
 similarity = cosine(p, z_neu)

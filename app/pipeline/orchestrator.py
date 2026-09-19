@@ -157,6 +157,7 @@ class PersonReIdPipeline:
         source: str | int | CameraSource,
         progress_callback: ProgressCallback | None = None,
         frame_callback: FrameCallback | None = None,
+        max_duration_seconds: float | None = None,
     ) -> PipelineResult:
         """Analyze a video or camera source and persist identity observations.
 
@@ -168,6 +169,11 @@ class PersonReIdPipeline:
         Raises:
             RuntimeError: If the source cannot be opened.
         """
+
+        if max_duration_seconds is not None:
+            max_duration_seconds = float(max_duration_seconds)
+            if not np.isfinite(max_duration_seconds) or max_duration_seconds <= 0:
+                raise ValueError("max_duration_seconds must be finite and greater than zero.")
 
         if getattr(self, "_has_processed", False):
             raise RuntimeError("A pipeline instance handles one source only; construct a fresh tracker/pipeline for the next run.")
@@ -183,10 +189,13 @@ class PersonReIdPipeline:
         load_seconds = 0.0
         processing_started: float | None = None
         try:
+            run_metadata = asdict(self.config)
+            if max_duration_seconds is not None:
+                run_metadata["max_duration_seconds"] = max_duration_seconds
             self.store.add_analysis_run(
                 run_id=run_id, mode_id=self.config.mode_id, mode_name=self.config.mode_name,
                 pipeline_type=self.config.pipeline_type, source=self._source_to_label(source),
-                fps=None, frame_count=None, width=None, height=None, metadata=asdict(self.config),
+                fps=None, frame_count=None, width=None, height=None, metadata=run_metadata,
             )
             load_started = time.perf_counter()
             try:
@@ -246,6 +255,8 @@ class PersonReIdPipeline:
                 artifacts,
                 progress_callback=progress_callback,
                 frame_callback=frame_callback,
+                max_duration_seconds=max_duration_seconds,
+                run_metadata=run_metadata,
             )
             return result
         except BaseException as exc:
@@ -290,12 +301,19 @@ class PersonReIdPipeline:
         artifacts: RunArtifacts,
         progress_callback: ProgressCallback | None = None,
         frame_callback: FrameCallback | None = None,
+        max_duration_seconds: float | None = None,
+        run_metadata: dict[str, Any] | None = None,
     ) -> PipelineResult:
 
         assert self.tracker is not None and self.encoder is not None
         total_frames_raw = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         total_frames = total_frames_raw if total_frames_raw > 0 else None
-        if self.config.max_frames > 0:
+        if max_duration_seconds is not None:
+            # A live duration is based on elapsed wall-clock time. It takes
+            # precedence over the frame limit, whose duration depends on how
+            # quickly inference can consume webcam frames.
+            total_for_progress = None
+        elif self.config.max_frames > 0:
             total_for_progress = min(total_frames or self.config.max_frames, self.config.max_frames)
         else:
             total_for_progress = total_frames
@@ -308,8 +326,11 @@ class PersonReIdPipeline:
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 720
 
         run_id = artifacts.metadata["run_id"]
-        artifacts.set_video(fps=float(fps), frame_count=total_frames, width=width, height=height,
-                            fps_fallback=not cap.get(cv2.CAP_PROP_FPS) or cap.get(cv2.CAP_PROP_FPS) <= 1)
+        artifacts.set_video(
+            fps=float(fps), frame_count=total_frames, width=width, height=height,
+            fps_fallback=not cap.get(cv2.CAP_PROP_FPS) or cap.get(cv2.CAP_PROP_FPS) <= 1,
+            capture_duration_limit_seconds=max_duration_seconds,
+        )
         source_label = safe_source_name(self._source_to_label(source))
         mode_label = safe_source_name(self.config.mode_id)
         output_path = self.paths.output_dir / f"{mode_label}_{run_id}_{source_label}.mp4"
@@ -334,7 +355,7 @@ class PersonReIdPipeline:
             frame_count=total_frames,
             width=width,
             height=height,
-            metadata=asdict(self.config),
+            metadata=run_metadata if run_metadata is not None else asdict(self.config),
         )
 
         # Run-local bridge from the tracker's short-lived IDs to durable person
@@ -350,8 +371,12 @@ class PersonReIdPipeline:
         warnings: list[str] = []
 
         # Hot path: read -> track -> quality gate -> encode/match -> draw/write.
+        capture_started = time.perf_counter()
         while True:
-            if self.config.max_frames > 0 and frame_index >= self.config.max_frames:
+            if max_duration_seconds is not None:
+                if frame_index > 0 and time.perf_counter() - capture_started >= max_duration_seconds:
+                    break
+            elif self.config.max_frames > 0 and frame_index >= self.config.max_frames:
                 break
             ok, frame = cap.read()
             if not ok:
@@ -411,8 +436,14 @@ class PersonReIdPipeline:
                         min_height=self.config.min_crop_height,
                     )
                     prediction["quality_score"] = quality_score
+                    # Known tracks must pass both quality gates before encoder inference.
+                    quality_rejection_state = None
                     if quality_score < self.config.min_embedding_quality:
-                        prediction["state"] = "below_candidate_quality"
+                        quality_rejection_state = "below_candidate_quality"
+                    elif person_id is not None and quality_score < self.config.min_update_quality:
+                        quality_rejection_state = "below_update_quality"
+                    if quality_rejection_state is not None:
+                        prediction["state"] = quality_rejection_state
                         skipped_low_quality += 1
                         if self.config.draw_debug:
                             draw_detection(
@@ -514,9 +545,9 @@ class PersonReIdPipeline:
                         if not decision.accepted:
                             prediction["state"] = "matched_identity_update_rejected"
 
-                    # Known tracks only update their durable profile with a
-                    # stricter quality threshold than the initial candidate gate.
-                    elif quality_score >= self.config.min_update_quality:
+                    # Known tracks have already passed both quality gates;
+                    # the profile service still checks embedding similarity.
+                    else:
                         snapshot_path = save_crop(candidate.crop, self.paths.snapshot_dir, person_id, frame_index, run_id=run_id)
                         decision = self.profiles.add_or_update_person(
                             person_id=person_id,
@@ -538,9 +569,6 @@ class PersonReIdPipeline:
                         prediction.update(state="profile_update" if decision.accepted else "profile_update_rejected",
                                           snapshot_frame_index=frame_index, profile_update_accepted=decision.accepted,
                                           update_similarity=decision.similarity, profile_update_reason=decision.reason)
-                    else:
-                        prediction["state"] = "below_update_quality"
-                        skipped_low_quality += 1
 
                 if person_id:
                     used_person_ids_this_frame.add(person_id)

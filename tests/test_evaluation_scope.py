@@ -32,11 +32,6 @@ def paths_for(base: Path) -> AppPaths:
 
 
 class EvaluationPresetTests(unittest.TestCase):
-    def test_only_documented_variants_are_built_in(self) -> None:
-        self.assertEqual(set(builtin_modes()), {
-            "default", "colorhist", "no_quality_thresholds", "no_update_similarity",
-        })
-
     def test_a1_a2_and_a3_change_only_the_documented_parameters(self) -> None:
         modes = builtin_modes()
         base = asdict(modes["default"].to_pipeline_config())

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from dataclasses import asdict
@@ -10,6 +11,7 @@ import numpy as np
 
 from app.config import AppPaths, PipelineConfig
 from app.pipeline.orchestrator import PersonReIdPipeline
+from app.utils.camera_utils import CameraSource
 
 
 class FakeCapture:
@@ -136,6 +138,23 @@ class PipelineResourceTests(unittest.TestCase):
         self.assertEqual(writer.frames_written, 2)
         self.assertTrue(capture.released)
         self.assertTrue(writer.released)
+
+    def test_live_duration_limit_takes_precedence_over_frame_limit(self) -> None:
+        capture = FakeCapture(frame_count=5)
+        writer = FakeWriter()
+        clock = iter((0.0, 0.1, 0.2, 0.3, 0.4, 1.5, 1.6, 1.7))
+        with tempfile.TemporaryDirectory() as temp_dir, patch(
+            "app.pipeline.orchestrator.cv2.VideoWriter", return_value=writer
+        ), patch("app.pipeline.orchestrator.time.perf_counter", side_effect=lambda: next(clock)):
+            pipeline = self.make_pipeline(temp_dir, capture, EmptyTracker())
+            result = pipeline.process(CameraSource(0, "auto"), max_duration_seconds=1.0)
+            manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(result.processed_frames, 1)
+        self.assertEqual(capture.read_calls, 1)
+        self.assertEqual(writer.frames_written, 1)
+        self.assertTrue(capture.released)
+        self.assertEqual(manifest["video"]["capture_duration_limit_seconds"], 1.0)
 
     def test_run_records_its_complete_effective_configuration(self) -> None:
         capture = FakeCapture()

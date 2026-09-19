@@ -84,6 +84,85 @@ class WeightedAccumulationTests(unittest.TestCase):
             np.testing.assert_allclose(profile.embedding_sum, [sum(qualities), 0.], atol=1e-6)
 
 
+class PipelineQualityGateTests(unittest.TestCase):
+    def run_quality_sequence(self, qualities, *, frame_count=None, **overrides):
+        config = replace(config_for_test(), min_embedding_quality=.55,
+                         min_update_quality=.65, min_good_frames_before_reid=1)
+        config = replace(config, **overrides)
+        with tempfile.TemporaryDirectory() as folder:
+            box = Detection(7, (2, 5, 25, 44), .9)
+            with patch("app.pipeline.orchestrator.crop_quality_score",
+                       side_effect=[(quality, {}) for quality in qualities]) as quality_score:
+                pipeline, result, _, _ = execute_pipeline(
+                    paths_for(Path(folder)), [[box]] * (frame_count or len(qualities)), config=config)
+            self.assertEqual(quality_score.call_count, len(qualities))
+            frames = [json.loads(line) for line in result.predictions_path.read_text().splitlines()]
+            predictions = [frame["detections"][0] for frame in frames]
+            return len(pipeline.encoder.crops), pipeline.store.iter_profiles(), predictions, result
+
+    def test_unknown_track_uses_only_candidate_quality_to_fill_initial_buffer(self):
+        calls, profiles, predictions, _ = self.run_quality_sequence(
+            [.54, .55, .60, .55], min_good_frames_before_reid=3)
+        self.assertEqual(calls, 3)
+        self.assertEqual([item["state"] for item in predictions], [
+            "below_candidate_quality", "waiting_for_initial_observations",
+            "waiting_for_initial_observations", "created_identity"])
+        self.assertEqual(profiles[0].observations, 3)
+        self.assertAlmostEqual(profiles[0].embedding_weight_sum, .55 + .60 + .55)
+
+    def test_known_track_below_update_quality_never_calls_encoder(self):
+        calls, profiles, predictions, result = self.run_quality_sequence([.7, .60])
+        self.assertEqual(calls, 1)
+        self.assertEqual(profiles[0].observations, 1)
+        self.assertAlmostEqual(profiles[0].embedding_weight_sum, .7)
+        np.testing.assert_allclose(profiles[0].embedding_sum, [.7, 0.])
+        rejected = predictions[1]
+        self.assertEqual(rejected["state"], "below_update_quality")
+        self.assertEqual(rejected["quality_score"], .60)
+        self.assertEqual(rejected["person_id"], predictions[0]["person_id"])
+        self.assertIsNone(rejected["profile_update_accepted"])
+        self.assertIsNone(rejected["update_similarity"])
+        self.assertIsNone(rejected["snapshot_frame_index"])
+        self.assertIn("Skipped low-quality ReID crops: 1", result.warnings)
+
+    def test_known_track_still_requires_candidate_quality_when_it_is_higher(self):
+        calls, profiles, predictions, result = self.run_quality_sequence(
+            [.85, .75, .79, .80], min_embedding_quality=.80, min_update_quality=.65)
+        self.assertEqual(calls, 2)
+        self.assertEqual([item["state"] for item in predictions], [
+            "created_identity", "below_candidate_quality", "below_candidate_quality", "profile_update"])
+        self.assertEqual(profiles[0].observations, 2)
+        self.assertAlmostEqual(profiles[0].embedding_weight_sum, .85 + .80)
+        self.assertIn("Skipped low-quality ReID crops: 2", result.warnings)
+
+    def test_known_track_accepts_quality_equal_to_update_threshold(self):
+        calls, profiles, predictions, _ = self.run_quality_sequence([.55, .65])
+        self.assertEqual(calls, 2)
+        self.assertEqual(profiles[0].observations, 2)
+        self.assertEqual(predictions[1]["state"], "profile_update")
+        self.assertTrue(predictions[1]["profile_update_accepted"])
+        self.assertAlmostEqual(predictions[1]["update_similarity"], 1)
+
+    def test_disabled_quality_thresholds_still_allow_initialization_and_updates(self):
+        calls, profiles, predictions, _ = self.run_quality_sequence(
+            [0., 0.], min_embedding_quality=0, min_update_quality=0)
+        self.assertEqual(calls, 2)
+        self.assertEqual(profiles[0].observations, 2)
+        self.assertAlmostEqual(profiles[0].embedding_weight_sum, .1)
+        self.assertEqual(predictions[1]["state"], "profile_update")
+
+    def test_known_track_keeps_global_five_frame_update_schedule_after_rejection(self):
+        calls, profiles, predictions, _ = self.run_quality_sequence(
+            [.55, .60, .65], frame_count=10, reid_every_n_frames=5)
+        self.assertEqual(calls, 2)
+        self.assertEqual(profiles[0].observations, 2)
+        self.assertEqual(predictions[4]["state"], "below_update_quality")
+        self.assertEqual(predictions[9]["state"], "profile_update")
+        for index in (1, 2, 3, 5, 6, 7, 8):
+            self.assertEqual(predictions[index]["state"], "known_track")
+            self.assertIsNone(predictions[index]["quality_score"])
+
+
 class ProfileProtectionTests(unittest.TestCase):
     def test_rejected_update_preserves_all_profile_fields_and_records_reason(self):
         with tempfile.TemporaryDirectory() as folder:
