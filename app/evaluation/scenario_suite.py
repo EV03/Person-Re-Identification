@@ -21,10 +21,10 @@ from app.utils.id_utils import make_run_id, safe_source_name
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv"}
 SCENARIO_DESCRIPTIONS = {
-    "G1": "Zwei Personen ohne Kreuzung",
-    "G2": "Personen verlassen das Bild und kehren zurück",
-    "G3": "Personen mit ähnlicher Kleidung",
-    "G4": "Personen kreuzen sich",
+    "G1": "Zwei Personen bewegen sich vor und zurück und drehen sich; keine weitere Interaktion",
+    "G2": "Zwei Personen laufen innerhalb desselben Videos aus dem Bild und wieder hinein",
+    "G3": "Zwei ähnlich gekleidete Personen laufen innerhalb desselben Videos aus dem Bild und wieder hinein",
+    "G4": "Zwei Personen kreuzen sich und drehen sich stark umeinander",
 }
 DEFAULT_SUITE_MODES = (
     "default",
@@ -63,8 +63,17 @@ def resolve_project_path(value: str | Path) -> Path:
     return path if path.is_absolute() else PROJECT_ROOT / path
 
 
+def _validate_four_videos(entries: list[ScenarioVideo]) -> None:
+    counts = {group: sum(entry.group == group for entry in entries)
+              for group in SCENARIO_DESCRIPTIONS}
+    invalid = {group: count for group, count in counts.items() if count != 1}
+    if invalid:
+        details = ", ".join(f"{group}={count}" for group, count in invalid.items())
+        raise ValueError(f"Exactly one video is required for each of G1, G2, G3 and G4 ({details}).")
+
+
 def discover_scenario_videos(video_root: Path) -> list[ScenarioVideo]:
-    """Discover ``G1``...``G4`` folders; subfolders define shared sequences."""
+    """Discover exactly one video in each ``G1``...``G4`` folder."""
     video_root = Path(video_root).resolve()
     if not video_root.is_dir():
         raise FileNotFoundError(video_root)
@@ -76,10 +85,8 @@ def discover_scenario_videos(video_root: Path) -> list[ScenarioVideo]:
             continue
         for video in sorted(path for path in group_dir.rglob("*")
                             if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS):
-            relative = video.relative_to(group_dir)
-            sequence = (relative.parent.as_posix()
-                        if relative.parent != Path(".") else video.stem)
-            entries.append(ScenarioVideo(group, sequence, video, 2, description))
+            entries.append(ScenarioVideo(group, group.lower(), video, 2, description))
+    _validate_four_videos(entries)
     return entries
 
 
@@ -119,8 +126,7 @@ def load_scenario_manifest(path: Path) -> list[ScenarioVideo]:
             raise ValueError("expected_person_count must be at least 1.")
         entries.append(ScenarioVideo(group, sequence, video_path, expected,
                                      str(row.get("notes") or "").strip()))
-    if not entries:
-        raise ValueError("The G1-G4 manifest contains no videos.")
+    _validate_four_videos(entries)
     return entries
 
 

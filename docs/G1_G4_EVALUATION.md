@@ -9,23 +9,31 @@ aufgenommen. Der Versuchsstarter erwartet folgende Ordner:
 
 ```text
 Test-daten/
-├── G1/                         # zwei Personen, keine Kreuzung
-│   ├── take_01.mp4
-│   └── take_02.mp4
-├── G2/                         # verlassen und zurückkehren
-│   └── return_01/              # ein gemeinsamer Profilbestand
-│       ├── 01_leave.mp4
-│       └── 02_return.mp4
-├── G3/                         # ähnliche Kleidung
-│   └── take_01.mp4
-└── G4/                         # Personen kreuzen sich
-    └── take_01.mp4
+├── G1/
+│   └── g1_vor_zurueck_drehen.mp4
+├── G2/
+│   └── g2_raus_und_rein.mp4
+├── G3/
+│   └── g3_aehnliche_kleidung_raus_rein.mp4
+└── G4/
+    └── g4_kreuzen_umeinander_drehen.mp4
 ```
 
-Ein Video direkt unter G1/G2/G3/G4 ist eine eigene Sequenz. Mehrere Videos in
-demselben Unterordner gehören zu einer Sequenz und teilen innerhalb eines
-Preset-Laufs die Profildatenbank. Das ist besonders für G2 wichtig. Verschiedene
-Presets und Wiederholungen erhalten immer neue, isolierte Datenbanken.
+Es werden exakt vier Videos verwendet, je genau eines pro Gruppe:
+
+- **G1:** Beide Personen bewegen sich vor und zurück und drehen sich. Es gibt
+  keine weitere Interaktion und keine Kreuzung.
+- **G2:** Beide Personen laufen innerhalb desselben Videos aus dem Bild und
+  wieder hinein.
+- **G3:** Beide Personen tragen ähnliche Kleidung und laufen innerhalb
+  desselben Videos aus dem Bild und wieder hinein.
+- **G4:** Beide Personen kreuzen sich und drehen sich stark im Kreis
+  umeinander.
+
+Jedes Video enthält zwei reale Personen und wird vollständig als eine Sequenz
+ausgewertet. Verschiedene Presets und Wiederholungen erhalten neue, isolierte
+Datenbanken. Der Manifest-Generator bricht mit einer verständlichen Meldung ab,
+wenn eine Gruppe fehlt oder mehr als ein Video enthält.
 
 ## Manifest erzeugen
 
@@ -35,9 +43,8 @@ python scripts/evaluate_g1_g4_suite.py init-manifest `
   --output data/g1_g4_manifest.csv
 ```
 
-Das CSV enthält Gruppe, Sequenz, Videopfad, erwartete reale Personenzahl und
-Notizen. `expected_person_count` steht zunächst auf 2 und kann vor dem Lauf je
-Video angepasst werden.
+Das CSV enthält genau vier Zeilen: Gruppe, Sequenz, Videopfad, erwartete reale
+Personenzahl und Notizen. `expected_person_count` steht für alle Videos auf 2.
 
 ## Alle Presets ausführen
 

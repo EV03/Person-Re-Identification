@@ -30,7 +30,7 @@ from app.modes.mode_registry import list_modes  # noqa: E402
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="G1-G4 evaluation across Main and Details presets.")
     sub = parser.add_subparsers(dest="command", required=True)
-    init = sub.add_parser("init-manifest", help="Scan G1/G2/G3/G4 video folders.")
+    init = sub.add_parser("init-manifest", help="Scan exactly one video in each G1/G2/G3/G4 folder.")
     init.add_argument("--video-root", default="Test-daten")
     init.add_argument("--output", default="data/g1_g4_manifest.csv")
     run = sub.add_parser("run", help="Run all requested presets and write comparison reports.")

@@ -19,26 +19,36 @@ from app.evaluation.scenario_suite import (
 
 
 class ScenarioSuiteTests(unittest.TestCase):
-    def test_g_folders_are_discovered_and_subfolders_share_a_sequence(self) -> None:
+    def test_exactly_one_video_per_g_folder_is_discovered(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             files = [
                 root / "G1" / "no_crossing.mp4",
-                root / "g2" / "return_01" / "01_leave.mp4",
-                root / "g2" / "return_01" / "02_return.mp4",
+                root / "g2" / "leave_and_return.mp4",
+                root / "G3" / "similar_clothes.mp4",
+                root / "G4" / "crossing.mp4",
                 root / "Default" / "ignored.mp4",
             ]
             for path in files:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b"video")
             entries = discover_scenario_videos(root)
-            self.assertEqual(len(entries), 3)
-            self.assertEqual([entry.sequence for entry in entries if entry.group == "G2"],
-                             ["return_01", "return_01"])
+            self.assertEqual(len(entries), 4)
+            self.assertEqual([entry.sequence for entry in entries], ["g1", "g2", "g3", "g4"])
             manifest = write_scenario_manifest(entries, root / "manifest.csv")
             restored = load_scenario_manifest(manifest)
             self.assertEqual([(item.group, item.sequence) for item in restored],
                              [(item.group, item.sequence) for item in entries])
+
+    def test_duplicate_or_missing_group_video_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for relative in ("G1/one.mp4", "G1/two.mp4", "G2/one.mp4", "G3/one.mp4", "G4/one.mp4"):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"video")
+            with self.assertRaisesRegex(ValueError, "Exactly one video"):
+                discover_scenario_videos(root)
 
     def test_multi_person_diagnostics_are_explicitly_not_ground_truth_metrics(self) -> None:
         events = [
