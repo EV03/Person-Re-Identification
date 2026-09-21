@@ -1,7 +1,7 @@
 # Evaluationsumfang auf main
 
-Stand: 13. September 2026. Dieser Branch enthält den abgegrenzten ReID-Prototyp.
-Die quantitative Evaluation wurde noch nicht durchgeführt.
+Stand: 20. September 2026. Dieser Branch enthält den abgegrenzten ReID-Prototyp.
+Die explorative Vier-Video-Evaluation wurde mit zwölf isolierten Läufen durchgeführt.
 
 ## Enthalten und dokumentiert
 
@@ -9,7 +9,7 @@ Die quantitative Evaluation wurde noch nicht durchgeführt.
 - YOLO-Personendetektion mit ByteTrack; BoT-SORT bleibt eine auswählbare Alternative.
 - Person-Crops, geometrische Mindestgrößen und heuristische Qualitätsbewertung.
 - Fünf zeitlich getrennte Initialbeobachtungen, qualitätsgewichtete Embeddings und Profilupdates.
-- OSNet-Adapter und Farbhistogramm als Vergleichsencoder.
+- OSNet-Adapter mit dokumentierten ReID-Gewichten.
 - Cosine Matching, synthetische Personen-IDs und SQLite.
 - Annotierte Videos, Vorschau, CLI und ReID-Presets in Streamlit.
 
@@ -17,22 +17,23 @@ Die quantitative Evaluation wurde noch nicht durchgeführt.
 
 | Preset | Konfiguration | Unterschied zu B0 |
 |---|---|---|
-| `default` | B0 | Referenz: OSNet, Qualität 0,55 / 0,65 und Schärfe 0,40 / 0,45 |
-| `colorhist` | A1 | Nur der Encoder wird ersetzt |
+| `default` | B0 | Referenz: OSNet, Qualität 0,55 / 0,65, Schärfe 0,40 / 0,45 und Personenformat 0,50 |
 | `no_quality_thresholds` | A2 | Qualitäts- und Initialschärfeschwellen werden null |
 | `no_update_similarity` | A3 | Nur der Update-Ähnlichkeitsschutz wird mit -1 deaktiviert |
 
 A2 behält Qualitätsgewichtung, Mindestgrößen, Initialpuffer und Snapshot-Auswahl.
-Alle vier Presets sind Ausgangskonfigurationen, keine final ausgewählten Pilotwerte.
-Sie enthalten zunächst dieselben sonstigen Parameter. CLI/UI-Overrides
-sind möglich und müssen als Konfigurationsänderung aufgezeichnet werden.
+Die drei eingebauten Presets sind Ausgangskonfigurationen. Die Auswertung verwendete
+das gespeicherte B0-Preset `best-calibrated` mit Matching- und Update-Ähnlichkeit
+0,75 sowie einem Updateintervall von fünf Frames. A2 und A3 wurden für jeden Lauf
+direkt daraus abgeleitet. CLI/UI-Overrides müssen als Konfigurationsänderung
+aufgezeichnet werden.
 
 Die UI lädt Presets in einen gemeinsamen, vollständigen Pipeline-Editor. Starten
 und die Speicheraktionen verwenden dieselben Parameter. Geänderte
 Läufe werden im Namen markiert; die effektive Pipeline-Konfiguration ist einsehbar
 und wird vollständig in `analysis_runs.metadata_json` festgehalten. Das Speichern
 unter neuer ID erstellt ein Preset und lädt es. Ein ausgewähltes eigenes Preset
-kann über eine getrennte Aktion aktualisiert werden; die vier eingebauten Presets
+kann über eine getrennte Aktion aktualisiert werden; die drei eingebauten Presets
 können nicht überschrieben werden.
 Alle konfigurierbaren Matching-, Konfidenz-, Qualitäts- und Überlappungsschwellen, Mindestgrößen
 und zeitlichen Parameter sind editierbar. Tracker-interne Schwellen bleiben in der
@@ -96,32 +97,25 @@ nicht. A3 entfernt nur diese Prüfung für den kontrollierten Vergleich.
    Zeitmessungen, verarbeiteten Frames und abgeschlossenem/fehlgeschlagenem Status.
    Die lokale technische Umgebung ist als Versionssnapshot festgehalten.
 
-## Vor der quantitativen Evaluation noch erforderlich
+## Durchgeführte Auswertung
 
-Tracker, Matching, Profilupdate und Ablage sind über typisierte Verträge
-getrennt. Gemeinsame Settings stehen
-nur in `PipelineSettings`. Erweiterungen: [EXTENDING_BACKENDS.md](EXTENDING_BACKENDS.md).
-`WeightedMeanProfileUpdater` akkumuliert rohe qualitätsgewichtete Summen,
-einschließlich aller Initial-Crops. Vor Updates schützt eine konfigurierbare
-Ähnlichkeitsschwelle (Default 0,82) das bestehende Profil. Abgelehnte Versuche
-werden protokolliert. Standard-Einstiege verwenden getrennte Datenbanken pro
-Encoder-Konfiguration; isolierte Versuchseinheiten bleiben zusätzlich getrennt.
-Alte DBs werden nicht übernommen. Formeln: [PROFILE_UPDATES.md](PROFILE_UPDATES.md).
+Je eine vorhandene Aufnahme aus G1 bis G4 wurde vollständig mit B0, A2 und A3
+verarbeitet. Alle zwölf Läufe begannen mit leerer Datenbank und frischem Tracker.
+Die ereignisbasierte manuelle Prüfung ergab 5/6 korrekte Rückkehrentscheidungen
+für B0, 3/6 für A2 und 5/6 für A3. Falsche bestehende Personenkennungen traten
+nicht auf; Fehlschläge erzeugten neue Kennungen für bereits registrierte Personen.
+Im G4-Fenster gab es drei Eigen-, aber keine Fremdkandidaten für Profilupdates.
+Der Schutzvorteil der Update-Schwelle kann mit diesem Bestand daher nicht bewertet
+werden. Details und Provenienz: [four_group_results.md](evaluation/four_group_results.md).
 
-## Reduzierter finaler Versuchsplan
+## Abweichung vom ursprünglichen Versuchsplan
 
-Separate Pilotaufnahmen dienen der schrittweisen Wahl von Matching-, Update-
-Ähnlichkeits- und Qualitätsschwellen. Danach vier eigene Presets speichern und vor
-der Testauswertung einfrieren. A1 verwendet eigene Encoder-Ähnlichkeitsschwellen;
-A2/A3 werden aus der kalibrierten B0 abgeleitet. Eingebaute Presets übernehmen
-die bearbeiteten B0-Werte nicht automatisch.
-
-Vier Versuchsgruppen: freie Sicht/unbekannter Eintritt, Rückkehr, ähnliche Kleidung
-mit Rückkehr und Kreuzung/Verdeckung. Je drei getrennte Aufnahmen ergeben zwölf
-Testsequenzen, jeweils vier Varianten und damit 48 Kernläufe. Ein Videopaar mit
-gemeinsamen Profilen zählt als eine Sequenz. Externer Clip und Leerraum-Negativtest
-sind optional; zusätzliche technische Laufzeitwiederholungen nur auf einer vorab
-gewählten repräsentativen Sequenz je Variante, nicht auf allen zwölf.
+Der frühere Plan sah je drei Aufnahmen für vier Gruppen, also zwölf Sequenzen und
+36 Kernläufe, vor. Verfügbar waren je eine Aufnahme für freie Sicht/unbekannten
+Eintritt, Rückkehr, ähnliche Kleidung sowie Kreuzung/Verdeckung. Der tatsächlich
+berichtete Umfang umfasst deshalb vier Sequenzen, zwei Personen und zwölf Läufe.
+Die Aufnahmen wurden während der Entwicklung bereits betrachtet und bilden keinen
+unabhängigen Testbestand.
 
 GT-Annotation für Registrierung, Ein-/Austritt, Rückkehr und je G4-Aufnahme ein
 dreisekündiges Übergangsfenster. Rückkehrentscheidungen, die Ausgabe nach zwei
@@ -133,19 +127,17 @@ Referenztrajektorien. Der Versuchsstarter berechnet die GT-Metriken nicht automa
 für diese manuelle Ereignisevaluation ist TrackEval keine Pflicht.
 Bedienung, Pilotrastersuche und Ergebnisprotokoll: [EVALUATION_RUNBOOK.md](EVALUATION_RUNBOOK.md).
 
-Weiterhin bekannte Grenzen: kein expliziter Ablauf alter Track-Zustände,
-mögliche Profilverunreinigung nach ID-Switches trotz Ähnlichkeitsschutz, keine
-automatische Reparatur falscher Track-/Personenzuordnungen und nominale
-FPS-Zeitstempel statt ursprünglicher VFR-PTS. Die Standardpfade trennen
-Encoder-Konfigurationen; bei bewusst injizierten eigenen Speichern bleibt die
-Trennung Verantwortung des Aufrufers. Änderungen nach dem Einfrieren getrennt
-ausweisen. Vier Personen und Ereignisfenster erlauben keine breite Generalisierung.
+Weiterhin bekannte Grenzen sind mögliche Profilverunreinigung nach ID-Switches
+trotz Ähnlichkeitsschutz, keine automatische Reparatur falscher Track-/Personen-
+zuordnungen und nominale FPS-Zeitstempel statt ursprünglicher VFR-PTS. Die geringe
+Zahl von zwei Personen, vier Videos und sechs Rückkehrereignissen erlaubt keine
+breite Generalisierung.
 
 ## Prüfungen für diesen Branch
 
 `python -m unittest discover -s tests -v` prüft den ReID-Umfang und die konkreten
 Korrekturen mit temporären Daten und Fake-Komponenten. Zusätzlich laufen opt-in
 echte Modell-/Video-Tests für alle eingebauten Varianten mit künstlichen Clips ohne Personen.
-Beide echten Tests sind lokal erfolgreich. Damit wird weder eine
-ReID-Genauigkeit noch eine Echtzeitfähigkeit nachgewiesen. Das Paper enthält dafür
-weiterhin den reduzierten Versuchsplan und noch nicht erhobene Ergebnisse.
+Beide echten Tests sind lokal erfolgreich. Die zusätzliche Vier-Video-Evaluation
+liefert die im Paper berichteten Erkennungs- und Laufzeitwerte; sie ersetzt wegen
+des kleinen, nicht unabhängigen Bestands keinen breiten ReID-Benchmark.

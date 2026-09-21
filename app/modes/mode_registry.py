@@ -14,7 +14,6 @@ from pathlib import Path
 from app.config import AppPaths
 from app.modes.base_mode import ModeConfig
 from app.modes.default_mode import (
-    build_colorhist_mode,
     build_default_mode,
     build_no_quality_thresholds_mode,
     build_no_update_similarity_mode,
@@ -22,7 +21,6 @@ from app.modes.default_mode import (
 
 _BUILTIN_MODES = (
     build_default_mode,
-    build_colorhist_mode,
     build_no_quality_thresholds_mode,
     build_no_update_similarity_mode,
 )
@@ -59,6 +57,10 @@ def load_custom_modes(paths: AppPaths | None = None) -> dict[str, ModeConfig]:
 
     modes: dict[str, ModeConfig] = {}
     for item in raw.get("modes", []):
+        # Do not silently reinterpret presets containing parameters that are no
+        # longer part of the current pipeline contract.
+        if set(item) - set(ModeConfig.__dataclass_fields__):
+            continue
         try:
             mode = ModeConfig.from_json_dict(item)
         except (TypeError, ValueError):

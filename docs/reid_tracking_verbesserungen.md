@@ -23,12 +23,12 @@ nur auf die Ausgabekopie gezeichnet.
 
 ## Vergleich laut Evaluationsplan
 
-B0 verwendet OSNet mit den genannten Schwellen, A1 ein Farbhistogramm.
-A2 setzt beide Annahmeschwellen auf null, behält Mindestgröße, Qualitätsgewichtung,
+B0 verwendet OSNet mit den genannten Schwellen.
+A2 setzt die Qualitätsgrenzen auf null, behält Mindestgröße, Qualitätsgewichtung,
 Initialpuffer und Snapshot-Auswahl bei. Die Gewichtung verwendet im Code ein
 Mindestgewicht von 0,05.
 
-Die Modellgewichte für B0/A2 müssen noch ausdrücklich festgelegt werden.
+Die Modellgewichte für B0/A2/A3 müssen noch ausdrücklich festgelegt werden.
 Die drei Presets allein ersetzen keinen Experiment-Runner mit getrennten Datenbeständen.
 
 ## Grenzen

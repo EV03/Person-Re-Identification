@@ -65,7 +65,6 @@ class PipelineSettings:
 
     yolo_model: str = os.getenv("REID_DEFAULT_MODEL", "yolov8n.pt")
     tracker: str = os.getenv("REID_DEFAULT_TRACKER", "bytetrack.yaml")
-    encoder_backend: str = os.getenv("REID_DEFAULT_ENCODER", "torchreid")
     reid_model_name: str = "osnet_x1_0"
     reid_checkpoint: str = os.getenv("REID_CHECKPOINT", "data/models/osnet_x1_0_msmt17.pth")
     match_threshold: float = float(os.getenv("REID_DEFAULT_THRESHOLD", "0.82"))
@@ -77,6 +76,7 @@ class PipelineSettings:
     min_embedding_quality: float = 0.55
     min_initial_blur_score: float = 0.40
     min_border_blur_score: float = 0.45
+    min_initial_aspect_ratio_score: float = 0.50
     min_update_quality: float = 0.65
     min_update_similarity: float = 0.82
     max_frames: int = 500
@@ -85,7 +85,6 @@ class PipelineSettings:
     crop_padding: float = 0.05
     max_person_overlap_ratio: float = 0.15
     overlap_cooldown_frames: int = 10
-    track_state_ttl_frames: int = 30
     device: str = "auto"
     draw_debug: bool = True
     live_preview_every_n_frames: int = 10
@@ -102,14 +101,16 @@ class PipelineSettings:
                 raise ValueError(f"{name} must be finite and between -1 and 1.")
         if not math.isfinite(self.max_person_overlap_ratio) or not 0 <= self.max_person_overlap_ratio <= 1:
             raise ValueError("max_person_overlap_ratio must be finite and between 0 and 1.")
-        for name in ("min_initial_blur_score", "min_border_blur_score"):
+        for name in (
+            "min_initial_blur_score",
+            "min_border_blur_score",
+            "min_initial_aspect_ratio_score",
+        ):
             value = getattr(self, name)
             if not math.isfinite(value) or not 0 <= value <= 1:
                 raise ValueError(f"{name} must be finite and between 0 and 1.")
         if self.overlap_cooldown_frames < 0:
             raise ValueError("overlap_cooldown_frames must be greater than or equal to zero.")
-        if self.track_state_ttl_frames < 1:
-            raise ValueError("track_state_ttl_frames must be greater than or equal to one.")
         for name in ("reid_every_n_frames", "min_good_frames_before_reid", "initial_candidate_every_n_frames"):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name} must be greater than or equal to one.")

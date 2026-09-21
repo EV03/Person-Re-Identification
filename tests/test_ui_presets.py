@@ -25,7 +25,6 @@ def keyed_widget(app, key):
 EDITED_PARAMETERS = {
     "yolo_model": "yolov8s.pt",
     "tracker": "pilot_tracker.yaml",
-    "encoder_backend": "colorhist",
     "reid_model_name": "osnet_x0_5",
     "reid_checkpoint": "data/models/pilot.pth",
     "match_threshold": .731,
@@ -37,6 +36,7 @@ EDITED_PARAMETERS = {
     "min_embedding_quality": .4217,
     "min_initial_blur_score": .4012,
     "min_border_blur_score": .4567,
+    "min_initial_aspect_ratio_score": .5123,
     "min_update_quality": .8765,
     "min_update_similarity": .8234,
     "max_frames": 0,
@@ -45,7 +45,6 @@ EDITED_PARAMETERS = {
     "crop_padding": .12,
     "max_person_overlap_ratio": .2345,
     "overlap_cooldown_frames": 17,
-    "track_state_ttl_frames": 23,
     "device": "cpu",
     "draw_debug": False,
     "live_preview_every_n_frames": 13,
@@ -55,51 +54,25 @@ EDITED_PARAMETERS = {
 def edit_every_parameter(app):
     for field, value in EDITED_PARAMETERS.items():
         widget = keyed_widget(app, f"pipeline_{field}")
-        if field == "encoder_backend":
-            widget.select(value)
-        else:
-            widget.set_value(value)
+        widget.set_value(value)
     app.run()
     assert not app.exception
 
 
 class UiPresetTests(unittest.TestCase):
-    def test_nonisolated_runs_switch_encoder_database_and_return_to_original(self) -> None:
-        with tempfile.TemporaryDirectory() as folder:
-            paths = paths_for(Path(folder))
-            with patch("app.config.AppPaths", return_value=paths), patch(
-                "app.utils.camera_utils.scan_local_cameras", return_value=[]
-            ), patch("app.pipeline.orchestrator.PersonReIdPipeline") as constructor:
-                constructor.return_value.process.return_value = PipelineResult(
-                    output_video_path=None, processed_frames=1, created_persons=0, matched_events=0)
-                app = AppTest.from_file("app/ui/streamlit_app.py").run()
-                next(w for w in app.checkbox if w.label == "Isolierter Lauf (neue Datenbank)").uncheck().run()
-                next(w for w in app.radio if w.label == "Input type").set_value("Local webcam").run()
-                next(w for w in app.checkbox if w.label == "Use manual camera index").check().run()
-                databases = []
-                for backend in ("torchreid", "colorhist", "torchreid"):
-                    keyed_widget(app, "pipeline_encoder_backend").select(backend).run()
-                    next(w for w in app.button if w.label.startswith("Run ")).click().run()
-                    self.assertFalse(app.exception)
-                    databases.append(constructor.call_args.kwargs["paths"].db_path)
-                self.assertNotEqual(databases[0], databases[1])
-                self.assertEqual(databases[0], databases[2])
-
     def test_reference_and_comparison_presets_render_with_correct_parameters(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             paths = paths_for(Path(folder))
             with patch("app.config.AppPaths", return_value=paths):
                 app = AppTest.from_file("app/ui/streamlit_app.py", default_timeout=20).run()
                 self.assertEqual(len(app.exception), 0)
-                self.assertEqual(next(w for w in app.selectbox if w.label == "Encoder backend").value, "torchreid")
-                for preset, encoder, quality, update_similarity in (
-                    ("colorhist", "colorhist", .55, .82),
-                    ("no_quality_thresholds", "torchreid", 0.0, .82),
-                    ("no_update_similarity", "torchreid", .55, -1.0),
+                self.assertFalse(any(w.label == "Encoder backend" for w in app.selectbox))
+                for preset, quality, update_similarity in (
+                    ("no_quality_thresholds", 0.0, .82),
+                    ("no_update_similarity", .55, -1.0),
                 ):
                     next(w for w in app.selectbox if w.label == "ReID preset").select(preset).run()
                     self.assertEqual(len(app.exception), 0)
-                    self.assertEqual(next(w for w in app.selectbox if w.label == "Encoder backend").value, encoder)
                     self.assertEqual(keyed_widget(app, "pipeline_min_embedding_quality").value, quality)
                     self.assertEqual(keyed_widget(app, "pipeline_min_update_similarity").value, update_similarity)
                 labels = [w.label for w in app.checkbox] + [w.label for w in app.selectbox]
@@ -215,9 +188,9 @@ class UiPresetTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, patch("app.config.AppPaths", return_value=paths_for(Path(folder))):
             app = AppTest.from_file("app/ui/streamlit_app.py").run()
             for values in (
-                {"match_threshold": -1.0, "detection_confidence": .0001, "min_embedding_quality": 0.0, "min_initial_blur_score": 0.0, "min_border_blur_score": 0.0, "min_update_quality": 0.0, "min_crop_width": 0, "min_crop_height": 0},
-                {"match_threshold": 1.0, "detection_confidence": 1.0, "min_embedding_quality": 1.0, "min_initial_blur_score": 1.0, "min_border_blur_score": 1.0, "min_update_quality": 1.0},
-                {"match_threshold": .8123, "detection_confidence": .2345, "min_embedding_quality": .5678, "min_initial_blur_score": .3456, "min_border_blur_score": .4567, "min_update_quality": .6789},
+                {"match_threshold": -1.0, "detection_confidence": .0001, "min_embedding_quality": 0.0, "min_initial_blur_score": 0.0, "min_border_blur_score": 0.0, "min_initial_aspect_ratio_score": 0.0, "min_update_quality": 0.0, "min_crop_width": 0, "min_crop_height": 0},
+                {"match_threshold": 1.0, "detection_confidence": 1.0, "min_embedding_quality": 1.0, "min_initial_blur_score": 1.0, "min_border_blur_score": 1.0, "min_initial_aspect_ratio_score": 1.0, "min_update_quality": 1.0},
+                {"match_threshold": .8123, "detection_confidence": .2345, "min_embedding_quality": .5678, "min_initial_blur_score": .3456, "min_border_blur_score": .4567, "min_initial_aspect_ratio_score": .5432, "min_update_quality": .6789},
             ):
                 for field, value in values.items():
                     keyed_widget(app, f"pipeline_{field}").set_value(value)

@@ -84,10 +84,9 @@ def render_pipeline_editor() -> dict[str, object]:
         "Tracker configuration", key="pipeline_tracker",
         help="bytetrack.yaml, botsort.yaml oder eine eigene YAML-Datei. Interne Tracker-Schwellen werden in dieser Datei eingestellt.",
     )
-    st.selectbox("Encoder backend", ["colorhist", "torchreid"], key="pipeline_encoder_backend")
     st.text_input("ReID model", key="pipeline_reid_model_name")
     st.text_input("ReID checkpoint", key="pipeline_reid_checkpoint",
-                  help="Explizite ReID-Gewichte für OSNet. Relative Pfade beziehen sich auf das Projekt; Farbhistogramme ignorieren dieses Feld.")
+                  help="Explizite ReID-Gewichte für OSNet. Relative Pfade beziehen sich auf das Projekt.")
     st.text_input("Device", key="pipeline_device", help="auto, cpu, cuda oder cuda:0")
 
     st.subheader("Schwellenwerte")
@@ -98,6 +97,7 @@ def render_pipeline_editor() -> dict[str, object]:
         ("min_embedding_quality", "Min crop quality for ReID candidates", 0.0, 1.0, "0 deaktiviert diese Qualitätsschwelle; Mindestgrößen und Qualitätsgewichtung bleiben erhalten."),
         ("min_initial_blur_score", "Min. Schärfe für Initialkandidaten", 0.0, 1.0, "Unbekannte Tracks sammeln nur Crops ab diesem Schärfewert. 0 deaktiviert die separate Schärfegrenze."),
         ("min_border_blur_score", "Min. Schärfe bei Randkontakt", 0.0, 1.0, "Strengere Schärfegrenze, wenn die Personenbox einen Bildrand berührt. Eine scharfe Seitenansicht bleibt erlaubt."),
+        ("min_initial_aspect_ratio_score", "Min. Personenformat für Initialkandidaten", 0.0, 1.0, "Harte Mindestgrenze für ein personentypisches Verhältnis von Höhe zu Breite. 0 deaktiviert die Grenze; 0,50 ist ein toleranter Ausgangswert."),
         ("min_update_quality", "Min crop quality for person embedding updates", 0.0, 1.0, "Updates müssen zusätzlich die Kandidatenschwelle erfüllen."),
         ("min_update_similarity", "Min similarity for person embedding updates", -1.0, 1.0, "Zusätzlicher Profilschutz: Das neue Embedding muss zum bestehenden Personenprofil passen. -1 lässt alle gültigen Ähnlichkeiten zu. Auf Pilotclips abstimmen."),
         ("max_person_overlap_ratio", "Max person overlap for ReID", 0.0, 1.0, "Maximal erlaubter Schnittflächenanteil relativ zur kleineren Personenbox. 1 deaktiviert die Überlappungssperre."),
@@ -115,7 +115,6 @@ def render_pipeline_editor() -> dict[str, object]:
         ("image_size", "Image size", 32, "YOLO-Eingangsgröße; Vielfache von 32 verwenden."),
         ("max_frames", "Max frames (0 = vollständiges Video)", 0, "Begrenzt hochgeladene Videos. Für Webcam-Läufe gilt die separat eingestellte Aufnahmedauer."),
         ("overlap_cooldown_frames", "Overlap cooldown (frames)", 0, "Nach einer starken Personenüberlappung werden so viele Frames lang keine ReID-Profile angelegt oder aktualisiert."),
-        ("track_state_ttl_frames", "Track state TTL (frames)", 1, "Nach so vielen fehlenden Frames wird die laufinterne Zuordnung eines verschwundenen Tracks verworfen. Bei einer Rückkehr ist dadurch eine neue ReID-Entscheidung erforderlich."),
     ):
         st.number_input(label, min_value=minimum, step=1, key=f"pipeline_{field}", help=help_text)
     st.number_input("Crop padding", min_value=0.0, step=0.01, format="%.4f",
@@ -137,7 +136,7 @@ def queue_saved_preset(saved: ModeConfig, message: str) -> None:
 
 def render_preset_forms(paths: AppPaths, config: PipelineConfig, selected_mode: ModeConfig) -> None:
     with st.expander("Aktuelle Einstellungen als neue Versuchskonfiguration speichern"):
-        st.caption("Speichert exakt alle oben eingestellten Pipeline-Parameter unter einer neuen ID. B0/A1/A2/A3 und vorhandene Presets werden nicht überschrieben.")
+        st.caption("Speichert exakt alle oben eingestellten Pipeline-Parameter unter einer neuen ID. B0/A2/A3 und vorhandene Presets werden nicht überschrieben.")
         with st.form("save_current_configuration"):
             custom_name = st.text_input("Mode name", value="Mein ReID-Pilot")
             custom_mode_id_raw = st.text_input("Mode id", value="mein_reid_pilot")
@@ -192,7 +191,7 @@ paths.ensure()
 
 st.title("Local Person Re-Identification MVP")
 st.caption("Forschungsprototyp: YOLO, Tracking, qualitätsgefilterte ReID und lokale SQLite-Speicherung")
-st.caption("B0/A1/A2/A3 sind Ausgangspresets: Pilotwerte als eigene Konfigurationen speichern und vor den Testclips einfrieren. Frame-Export und Laufmanifest sind vorbereitet.")
+st.caption("B0/A2/A3 sind Ausgangspresets: Pilotwerte als eigene Konfigurationen speichern und vor den Testclips einfrieren. Frame-Export und Laufmanifest sind vorbereitet.")
 
 modes = list_modes(paths)
 pending_preset_id = st.session_state.pop("pending_preset_id", None)

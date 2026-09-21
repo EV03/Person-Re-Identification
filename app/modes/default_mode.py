@@ -1,4 +1,4 @@
-"""Four evaluation starting presets; calibrate and freeze copies on pilot data."""
+"""Three OSNet evaluation starting presets; calibrate and freeze copies on pilot data."""
 
 from __future__ import annotations
 
@@ -16,17 +16,6 @@ def build_default_mode() -> ModeConfig:
     )
 
 
-def build_colorhist_mode() -> ModeConfig:
-    """A1 differs from B0 only in the encoder."""
-    return replace(
-        build_default_mode(),
-        mode_id="colorhist",
-        name="A1 - Farbhistogramm",
-        description="B0 mit Farbhistogramm statt OSNet; alle übrigen Parameter bleiben gleich.",
-        encoder_backend="colorhist",
-    )
-
-
 def build_no_quality_thresholds_mode() -> ModeConfig:
     """A2 disables acceptance thresholds, not size checks or quality weights."""
     return replace(
@@ -37,6 +26,7 @@ def build_no_quality_thresholds_mode() -> ModeConfig:
         min_embedding_quality=0.0,
         min_initial_blur_score=0.0,
         min_border_blur_score=0.0,
+        min_initial_aspect_ratio_score=0.0,
         min_update_quality=0.0,
     )
 

@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "description": "Manuell anhand der Original- und annotierten Videos geprüfte Ereignisreferenz für den Vier-Video-Lauf vom 20.09.2026.",
+  "decision_window_seconds": 2.0,
+  "events": [
+    {
+      "event_id": "G1_U1",
+      "group": "G1",
+      "kind": "unknown_entry",
+      "gt_person": "GT_BRAUN",
+      "first_visible_frame": 22,
+      "track_id": 2,
+      "notes": "Braun gekleidete Person tritt zur bereits sichtbaren weiß gekleideten Person hinzu."
+    },
+    {
+      "event_id": "G2_R1",
+      "group": "G2",
+      "kind": "return",
+      "gt_person": "GT_BRAUN",
+      "first_visible_frame": 311,
+      "track_id": 10,
+      "initial_track_id": 2,
+      "initial_track_ids": [2, 4]
+    },
+    {
+      "event_id": "G2_R2",
+      "group": "G2",
+      "kind": "return",
+      "gt_person": "GT_WEISS",
+      "first_visible_frame": 460,
+      "track_id": 12,
+      "initial_track_id": 4,
+      "initial_track_ids": [2, 4]
+    },
+    {
+      "event_id": "G2_R3",
+      "group": "G2",
+      "kind": "return",
+      "gt_person": "GT_WEISS",
+      "first_visible_frame": 1009,
+      "track_id": 17,
+      "initial_track_id": 4,
+      "initial_track_ids": [2, 4]
+    },
+    {
+      "event_id": "G3_R1",
+      "group": "G3",
+      "kind": "return",
+      "gt_person": "GT_SCHWARZ_DUNKEL",
+      "first_visible_frame": 719,
+      "track_id": 12,
+      "initial_track_id": 1,
+      "initial_track_ids": [1, 2]
+    },
+    {
+      "event_id": "G3_R2",
+      "group": "G3",
+      "kind": "return",
+      "gt_person": "GT_SCHWARZ_GRAU",
+      "first_visible_frame": 791,
+      "track_id": 15,
+      "initial_track_id": 2,
+      "initial_track_ids": [1, 2]
+    },
+    {
+      "event_id": "G3_R3",
+      "group": "G3",
+      "kind": "return",
+      "gt_person": "GT_SCHWARZ_DUNKEL",
+      "first_visible_frame": 928,
+      "track_id": 18,
+      "initial_track_id": 1,
+      "initial_track_ids": [1, 2]
+    },
+    {
+      "event_id": "G4_T1",
+      "group": "G4",
+      "kind": "transition",
+      "gt_person": "GT_BRAUN",
+      "first_visible_frame": 368,
+      "track_id": 10,
+      "initial_track_id": 1,
+      "initial_track_ids": [1, 2]
+    },
+    {
+      "event_id": "G4_T2",
+      "group": "G4",
+      "kind": "transition",
+      "gt_person": "GT_WEISS",
+      "first_visible_frame": 439,
+      "track_id": 11,
+      "initial_track_id": 2,
+      "initial_track_ids": [1, 2]
+    }
+  ],
+  "excluded_events": [
+    {
+      "event_id": "G2_X1",
+      "group": "G2",
+      "gt_person": "GT_BRAUN",
+      "first_visible_frame": 1120,
+      "reason": "Das Video endet vor Ablauf des vollständigen Zwei-Sekunden-Fensters; anfangs ist nur eine randberührende Teilansicht sichtbar."
+    }
+  ],
+  "update_windows": [
+    {
+      "window_id": "G4_W1",
+      "group": "G4",
+      "start_frame": 301,
+      "end_frame": 391,
+      "transition_frame": 316,
+      "track_id": 2,
+      "profile_owner_gt": "GT_WEISS",
+      "crop_owner_gt": "GT_WEISS",
+      "notes": "0,5 Sekunden vor bis 2,5 Sekunden nach der zentralen Kreuzung bei ungefähr 30 FPS."
+    }
+  ]
+}

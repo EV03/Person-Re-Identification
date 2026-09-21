@@ -79,7 +79,6 @@ class PipelineResourceTests(unittest.TestCase):
     def make_pipeline(self, temp_dir: str, capture: FakeCapture, tracker: object) -> PersonReIdPipeline:
         pipeline = object.__new__(PersonReIdPipeline)
         pipeline.config = PipelineConfig(
-            encoder_backend="colorhist",
             max_frames=2,
             draw_debug=False,
         )

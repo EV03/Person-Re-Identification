@@ -14,7 +14,7 @@ def main() -> None:
     parser.add_argument("--model", default=defaults.reid_model_name)
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
-    encoder = build_encoder("torchreid", device=args.device, model_name=args.model,
+    encoder = build_encoder(device=args.device, model_name=args.model,
                             checkpoint_path=args.checkpoint)
     crop = np.full((256, 128, 3), 128, dtype=np.uint8)
     first, second = encoder.encode(crop), encoder.encode(crop)

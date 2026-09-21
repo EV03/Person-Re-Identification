@@ -21,7 +21,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mode", default="default", choices=available_modes, help="Selectable pipeline mode")
     parser.add_argument("--model", default=None, help="Ultralytics model name/path. Overrides selected mode default.")
     parser.add_argument("--tracker", default=None, help="Tracker config: bytetrack.yaml or botsort.yaml")
-    parser.add_argument("--encoder", default=None, choices=["colorhist", "torchreid"], help="ReID encoder backend")
     parser.add_argument("--threshold", type=float, default=None, help="Cosine similarity threshold")
     parser.add_argument("--update-similarity", type=float, default=None, help="Minimum similarity before updating an existing profile")
     parser.add_argument("--max-frames", type=int, default=None, help="Max frames to process; 0 processes the full video")
@@ -45,8 +44,6 @@ def main() -> None:
         overrides["yolo_model"] = args.model
     if args.tracker is not None:
         overrides["tracker"] = args.tracker
-    if args.encoder is not None:
-        overrides["encoder_backend"] = args.encoder
     if args.threshold is not None:
         overrides["match_threshold"] = args.threshold
     if args.update_similarity is not None:

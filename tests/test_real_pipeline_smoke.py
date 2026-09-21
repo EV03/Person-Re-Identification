@@ -60,8 +60,7 @@ class RealPipelineSmokeTests(unittest.TestCase):
                     self.assertTrue(run["input"]["sha256"])
                     self.assertTrue(run["models"]["detector"]["sha256"])
                     self.assertTrue(run["models"]["tracker"]["sha256"])
-                    if mode.encoder_backend == "torchreid":
-                        self.assertEqual(run["models"]["encoder"]["checkpoint"]["sha256"], DEFAULT_CHECKPOINT_SHA256)
+                    self.assertEqual(run["models"]["encoder"]["checkpoint"]["sha256"], DEFAULT_CHECKPOINT_SHA256)
                     capture = cv2.VideoCapture(run["exports"]["annotated_video"])
                     try:
                         self.assertTrue(capture.isOpened())

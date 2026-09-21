@@ -20,36 +20,6 @@ class ReIdEncoder(ABC):
         """Return a normalized embedding for one person crop in BGR format."""
 
 
-class ColorHistogramEncoder(ReIdEncoder):
-    """Very small demo encoder based on HSV color histograms.
-
-    This is intentionally simple and fast. It is useful for proving the complete
-    pipeline without installing heavy ReID dependencies. It is not robust enough
-    for production-grade person re-identification.
-    """
-
-    def describe_backend(self) -> dict[str, Any]:
-        return {"encoder": {"backend": "colorhist", "model_name": None, "checkpoint": None,
-                            "bins": [self.bins_h, self.bins_s, self.bins_v]}}
-
-    def __init__(self, bins_h: int = 16, bins_s: int = 8, bins_v: int = 8) -> None:
-        self.bins_h = bins_h
-        self.bins_s = bins_s
-        self.bins_v = bins_v
-        self.embedding_dim = bins_h + bins_s + bins_v
-
-    def encode(self, crop_bgr: np.ndarray) -> np.ndarray:
-        resized = cv2.resize(crop_bgr, (128, 256), interpolation=cv2.INTER_AREA)
-        hsv = cv2.cvtColor(resized, cv2.COLOR_BGR2HSV)
-
-        hist_h = cv2.calcHist([hsv], [0], None, [self.bins_h], [0, 180]).flatten()
-        hist_s = cv2.calcHist([hsv], [1], None, [self.bins_s], [0, 256]).flatten()
-        hist_v = cv2.calcHist([hsv], [2], None, [self.bins_v], [0, 256]).flatten()
-
-        vector = np.concatenate([hist_h, hist_s, hist_v]).astype(np.float32)
-        return normalize_vector(vector)
-
-
 class TorchreidOSNetEncoder(ReIdEncoder):
     """Optional OSNet encoder via torchreid.
 
@@ -130,10 +100,7 @@ class TorchreidOSNetEncoder(ReIdEncoder):
         return normalize_vector(vector)
 
 
-def build_encoder(backend: str, device: str = "auto", *, model_name: str = "osnet_x1_0", checkpoint_path: str = "") -> ReIdEncoder:
-    backend = backend.lower().strip()
-    if backend == "colorhist":
-        return ColorHistogramEncoder()
-    if backend == "torchreid":
-        return TorchreidOSNetEncoder(device=device, model_name=model_name, checkpoint_path=checkpoint_path)
-    raise ValueError(f"Unknown encoder backend: {backend}")
+def build_encoder(device: str = "auto", *, model_name: str = "osnet_x1_0",
+                  checkpoint_path: str = "") -> ReIdEncoder:
+    """Build the project's single supported ReID encoder: OSNet via torchreid."""
+    return TorchreidOSNetEncoder(device=device, model_name=model_name, checkpoint_path=checkpoint_path)

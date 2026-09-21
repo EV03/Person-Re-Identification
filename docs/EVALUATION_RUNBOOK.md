@@ -1,9 +1,10 @@
 # Reduzierte Evaluation: vom Pilot zum Ereignisvergleich
 
-Stand: 13. September 2026. Dieser Plan definiert die vier Versuchsgruppen G1–G4
-ohne durchgehende Bounding-Box-/Trackingannotation. Die Evaluation ist eine
-Fallstudie, kein umfassender Detektor-/Trackingbenchmark. Ergebnisse liegen noch
-nicht vor; der Versuchsstarter erzeugt Artefakte, keine automatischen GT-Metriken.
+Stand: 20. September 2026. Dieses Runbook dokumentiert den ursprünglich geplanten
+größeren Versuch und bleibt als Anleitung für Erweiterungen erhalten. Tatsächlich
+wurden je ein Video aus G1–G4 mit B0/A2/A3 verarbeitet, also zwölf Läufe. Die
+Ergebnisse stehen in [four_group_results.md](evaluation/four_group_results.md).
+Die Auswertung ist eine Fallstudie, kein umfassender Detektor-/Trackingbenchmark.
 
 ## Verbindlicher Umfang
 
@@ -14,12 +15,13 @@ nicht vor; der Versuchsstarter erzeugt Artefakte, keine automatischen GT-Metrike
 | G3 | Ähnliche Kleidung mit mehreren Personen und Rückkehr | 3 |
 | G4 | Kreuzung/Verdeckung mit einem kritischen Übergang je Aufnahme | 3 |
 
-Zwölf Testsequenzen à etwa 30–60 Sekunden, jeweils B0/A1/A2/A3: **48 Läufe**.
+Der ursprüngliche Zielumfang waren zwölf Testsequenzen à etwa 30–60 Sekunden,
+jeweils B0/A2/A3: **36 Läufe**. Dieser Umfang wurde nicht erhoben.
 Eine Registrierung-/Rückkehr-Videopaarung zählt als eine Sequenz. Pilotaufnahmen
 und zusätzliche technische Laufzeitwiederholungen zählen nicht zu den zwölf.
 Ein externer Clip und ein Leerraum-Negativtest sind optional, getrennt zu berichten.
 Weitere Tracker, YOLO-/OSNet-Architekturen, Beleuchtungs- oder Kleidungswechsel
-gehören nicht zum Kernvergleich. Neue Aufnahmen derselben vier Personen prüfen
+gehören nicht zum Kernvergleich. Zusätzliche Aufnahmen derselben Personen prüfen
 Robustheit auf diesen Aufnahmen, nicht Generalisierung auf unbekannte Personen.
 
 ## 1. Umgebung prüfen
@@ -47,7 +49,7 @@ jeweils eine frische Versuchsdatenbank, keine bereits optimierten Profile.
 
 Konstant lassen: YOLOv8n, ByteTrack samt YAML, Detektionskonfidenz 0,35,
 Eingangsgröße 640, fünf Initialbeobachtungen im Abstand von drei Frames,
-Updateintervall zehn Frames,
+Updateintervall fünf Frames,
 Mindestcropgröße 30 × 80 Pixel, Padding 0,05, Qualitätsformel und Gewichtung.
 Das sind Rahmenbedingungen, keine als optimal nachgewiesenen Werte.
 
@@ -60,9 +62,6 @@ Begrenztes Ausgangsraster für OSNet:
 4. Die gewählte Kombination gemeinsam nochmals prüfen.
 
 Das ist eine schrittweise Suche, nicht das Produkt aller Parameterkombinationen.
-Das Farbhistogramm übernimmt das gewählte Qualitätspaar; seine Matching- und
-Update-Ähnlichkeit wird separat auf denselben Pilotaufnahmen eingestellt. Bei
-anderer Scoreverteilung den Suchbereich nur auf Pilotdaten anpassen und festhalten.
 
 Auswahl vorher festlegen: zunächst die wenigsten falschen Personen-ID-Zuordnungen,
 bei Gleichstand die meisten korrekten Rückkehr-/unbekannten Eintrittsentscheidungen,
@@ -76,34 +75,33 @@ eines Schutzvorteils.
 
 Je Pilotkonfiguration eine Ergebniszeile festhalten: Preset-ID, sämtliche Parameter,
 Clip-/Ereignisbestand, richtige/falsche/neue/fehlende IDs, Registrierungsmisserfolge,
-Updatebefunde mit Nennern und Zuweisungszeit. Die Defaults 0,82 und 0,55/0,65
-sind noch keine empirisch ausgewählten Werte.
+Updatebefunde mit Nennern und Zuweisungszeit. Für die ausgeführte Evaluation
+wurden Matching und Update-Ähnlichkeit auf 0,75 sowie die Qualität auf 0,55/0,65
+festgelegt.
 
-## 3. Vier eigene finale Presets einfrieren
+## 3. Drei eigene finale Presets einfrieren
 
-| Variante | Encoder | Qualität | Matching-/Update-Ähnlichkeit |
-|---|---|---|---|
-| B0 | OSNet | Gewähltes Pilotpaar | Gewählte OSNet-Werte |
-| A1 | Farbhistogramm | Wie B0 | Eigene Histogramm-Pilotwerte |
-| A2 | OSNet | Beide Schwellen 0 | Wie B0 |
-| A3 | OSNet | Wie B0 | Matching wie B0; Update-Ähnlichkeit -1 |
+| Variante | Qualität | Matching-/Update-Ähnlichkeit |
+|---|---|---|
+| B0 | Gewählte Pilotgrenzen | Gewählte OSNet-Werte |
+| A2 | Alle Qualitätsgrenzen 0 | Wie B0 |
+| A3 | Wie B0 | Matching wie B0; Update-Ähnlichkeit -1 |
 
 In der UI die ausgewählte OSNet-Konfiguration als `eval_b0` speichern. Jeweils
 **dieses gespeicherte B0 laden**, ändern und als neues Preset speichern:
 
-- `eval_a1`: Farbhistogramm wählen und dessen beide kalibrierten Ähnlichkeitswerte setzen.
 - `eval_a2`: `min_embedding_quality`, `min_initial_blur_score`,
-  `min_border_blur_score` und `min_update_quality` auf 0 setzen.
+  `min_border_blur_score`, `min_initial_aspect_ratio_score` und
+  `min_update_quality` auf 0 setzen.
 - `eval_a3`: nur `min_update_similarity` auf -1 setzen.
 
-A1 vergleicht zwei kalibrierte Encoder-Konfigurationen, nicht nur einen isolierten
-Encoderwechsel. A2 behält Mindestgrößen, Qualitätsgewichtung, Initialpuffer und
+A2 behält Mindestgrößen, Qualitätsgewichtung, Initialpuffer und
 Snapshot-Auswahl. A3 lässt Qualitätsgrenzen und Profilupdates aktiv; es deaktiviert
 nur die Ähnlichkeitsprüfung. Nicht irrtümlich Updates vollständig deaktivieren.
 
-Die eingebauten Presets `default`, `colorhist`, `no_quality_thresholds` und
+Die eingebauten Presets `default`, `no_quality_thresholds` und
 `no_update_similarity` sind Ausgangskonfigurationen. Sie übernehmen **nicht**
-automatisch die im Pilot bearbeiteten Werte. Deshalb explizit die vier gespeicherten
+automatisch die im Pilot bearbeiteten Werte. Deshalb explizit die drei gespeicherten
 finalen Presets verwenden und ihre Parameter vor dem Test vergleichen.
 Code, Gewichte, YAML, Hardware und Presetdatei festhalten; keine Nachkalibrierung
 auf Testvideos. Die konkrete Quelle ist ein Laufparameter, kein Presetparameter.
@@ -158,26 +156,26 @@ repariert nicht automatisch eine falsche Tracker-/Personenzuordnung.
 Die Aussagen gelten für diese Ereignisse/Fenster. Keine vollständigen Precision-/
 Recall-, IDF1- oder ID-Switch-Zahlen daraus ableiten. TrackEval und dichte
 Referenztrajektorien sind keine Pflicht dieser Kernevaluation. Pro Clip und Gruppe
-Rohzahlen sowie paarweise B0/A1/A2/A3-Ergebnisse berichten; bei vier Personen keine
+Rohzahlen sowie paarweise B0/A2/A3-Ergebnisse berichten; bei wenigen Personen keine
 breite Generalisierung oder unabhängige Stichproben aus einzelnen Frames behaupten.
 
 ## 5. Unabhängige Versuchseinheit starten
 
 ```powershell
-python -m app.evaluation --sources data/input/g2_take1.mp4 --modes eval_b0 eval_a1 eval_a2 eval_a3 --device cpu
+python -m app.evaluation --sources data/input/g2_take1.mp4 --modes eval_b0 eval_a2 eval_a3 --device cpu
 ```
 
-Die vier `eval_*`-Presets müssen zuvor in der UI gespeichert sein. Ein Aufruf
-verarbeitet eine Sequenz mit den vier Varianten einmal, mit vollständigem Clip
+Die drei `eval_*`-Presets müssen zuvor in der UI gespeichert sein. Ein Aufruf
+verarbeitet eine Sequenz mit den drei Varianten einmal, mit vollständigem Clip
 (`max_frames=0`) und neuer Datenbank pro Variante. Für alle zwölf Sequenzen separat
-aufrufen. Ohne `--modes` laufen die vier eingebauten, noch nicht kalibrierten Presets.
+aufrufen. Ohne `--modes` laufen die drei eingebauten, noch nicht kalibrierten Presets.
 `--repetitions 3` macht aus einem Video keine drei getrennten Aufnahmen.
 Mehrere **unabhängige Szenarien separat aufrufen**, nicht als gemeinsame Quellenliste.
 
 Für eine zusammengehörige Registrierung-/Rückkehrpaarung:
 
 ```powershell
-python -m app.evaluation --sources data/input/registrierung.mp4 data/input/rueckkehr.mp4 --modes eval_b0 eval_a1 eval_a2 eval_a3 --device cpu
+python -m app.evaluation --sources data/input/registrierung.mp4 data/input/rueckkehr.mp4 --modes eval_b0 eval_a2 eval_a3 --device cpu
 ```
 
 Die Quellen werden in dieser Reihenfolge verarbeitet und teilen die Datenbank
@@ -217,8 +215,10 @@ hält den möglicherweise früheren Diagnoseframe fest.
 Die MOT-Datei enthält `frame,track_id,x,y,w,h,confidence,-1,-1,-1` und nur echte
 Trackerkennungen. Sie bleibt für spätere dichte Trackingauswertungen verfügbar,
 wird für die aktuelle Ereignisevaluation aber nicht benötigt. Die GT-Auswertung
-mit ursprünglichen Videos und den Exporten erfolgt manuell; sie ist noch nicht
-Teil des Versuchstarters. Ungetrackte Boxen und fehlende Personen-IDs bleiben sichtbar.
+mit ursprünglichen Videos und den Exporten erfolgt manuell und ist nicht Teil des
+Versuchstarters. Für den Vier-Video-Lauf wurde sie mit
+`scripts/evaluate_four_group_results.py` aus der geprüften Ereignisreferenz erzeugt.
+Ungetrackte Boxen und fehlende Personen-IDs bleiben sichtbar.
 
 Frameindices beginnen bei 1. Zeitstempel sind nominal `(frame_index-1)/fps`.
 OpenCV liefert hier keine ursprünglichen PTS variabler Frameraten; für zeitliche
@@ -243,20 +243,20 @@ UI-Vorschau für Laufzeitvergleiche identisch einstellen oder CLI ohne UI nutzen
 
 Nur eine vorab festgelegte repräsentative Sequenz je finalem Preset dreimal
 technisch verarbeiten, um Laufzeitschwankungen abzuschätzen. Nicht alle zwölf
-Sequenzen dreimal ausführen. Diese Wiederholungen separat von den 48 Kernläufen
+Sequenzen dreimal ausführen. Diese Wiederholungen separat von den 36 Kernläufen
 ausweisen und nicht als unabhängige Erkennungsversuche zählen.
 
-## Was noch zu tun ist
+## Erweiterungen nach der Fallstudie
 
-Pilotaufnahmen auswerten, vier finale Presets speichern, zwölf Testsequenzen mit
-Ereignisreferenz aufnehmen und Ergebnisse manuell prüfen. Ein optionales öffentliches
-Video braucht dokumentierte Lizenz/Berechtigung. Erst erhobene Zahlen in das Paper
-eintragen. Eine automatische GT-Auswertung oder TrackEval-Einbindung ist kein
-Blocker für diesen manuellen, ereignisbasierten Umfang. Profilverunreinigung nach
-Tracker-ID-Switches bleibt trotz Ähnlichkeitsschutz eine mögliche Methodengrenze.
+Für belastbarere Aussagen sind zusätzliche, zurückgehaltene Testsequenzen mit mehr
+Personen und gezielt auftretenden Fremdkandidaten in den Updatefenstern erforderlich.
+Ein optionales öffentliches Video braucht dokumentierte Lizenz/Berechtigung. Eine
+vollständige Trackingbewertung würde außerdem dichte Referenztrajektorien benötigen.
+Profilverunreinigung nach Tracker-ID-Switches bleibt trotz Ähnlichkeitsschutz eine
+mögliche Methodengrenze.
 
 Die Profile akkumulieren jetzt rohe qualitätsgewichtete Summen inklusive aller
-Initial-Crops. Updates benötigen zusätzlich `min_update_similarity` (Default
-0,82; auf Pilotclips einstellen). Ablehnungen werden exportiert und verändern
+Initial-Crops. Updates benötigen zusätzlich `min_update_similarity` (in der
+Auswertung 0,75). Ablehnungen werden exportiert und verändern
 das Profil nicht. Sie reparieren die Tracker-/Personenzuordnung nicht automatisch.
 Formeln und Qualitätsberechnung: [PROFILE_UPDATES.md](PROFILE_UPDATES.md).

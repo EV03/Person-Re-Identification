@@ -7,7 +7,7 @@ offenen Voraussetzungen für Messungen beschreibt [EVALUATION_SCOPE.md](EVALUATI
 
 1. [config.py](../app/config.py): Pfade und Laufzeitparameter.
 2. [models.py](../app/storage/models.py): Detection, MatchResult, PersonRecord und PipelineResult.
-3. [default_mode.py](../app/modes/default_mode.py): B0 und die drei gezielt abgeleiteten Ausgangsvarianten A1/A2/A3.
+3. [default_mode.py](../app/modes/default_mode.py): B0 und die beiden gezielt abgeleiteten Ausgangsvarianten A2/A3.
 4. [main.py](../app/main.py): CLI, Preset, Overrides und Pipeline-Aufruf.
 5. [orchestrator.py](../app/pipeline/orchestrator.py): kompletter Ablauf.
 6. [reid_encoder.py](../app/pipeline/reid_encoder.py) und [detector_tracker.py](../app/pipeline/detector_tracker.py): Modelladapter.
@@ -69,12 +69,12 @@ und das Verwerfen veralteter Track-Zustände sind weiterhin offene fachliche Arb
 `ModeConfig.to_pipeline_config()` überträgt den Namen nach `mode_name` und wendet
 Overrides zuletzt an. Alle gemeinsamen Felder sind einmal in `PipelineSettings`
 definiert und werden von beiden Konfigurationen geerbt. Konfigurationen sind
-unveränderlich; Änderungen erfolgen mit `dataclasses.replace`. B0 hat die ID `default`, A1 `colorhist` und A2
-`no_quality_thresholds`; A3 hat die ID `no_update_similarity`. Die Ausgangsvarianten
+unveränderlich; Änderungen erfolgen mit `dataclasses.replace`. B0 hat die ID `default`, A2
+`no_quality_thresholds` und A3 hat die ID `no_update_similarity`. Die Ausgangsvarianten
 werden aus B0 abgeleitet, damit ihre Unterschiede im Code überprüfbar bleiben.
 A3 verändert nur die Update-Ähnlichkeitsschwelle auf -1, nicht die Updates selbst.
-Für finale Tests eigene kalibrierte Kopien verwenden: A2/A3 aus der gespeicherten
-B0 ableiten, A1 zusätzlich mit eigenen Ähnlichkeitsschwellen kalibrieren.
+Für finale Tests eigene kalibrierte Kopien verwenden und A2/A3 aus der gespeicherten
+B0 ableiten.
 Versuchsplan: [EVALUATION_RUNBOOK.md](EVALUATION_RUNBOOK.md).
 
 Eigene Presets werden unter `AppPaths.mode_config_path` gespeichert:

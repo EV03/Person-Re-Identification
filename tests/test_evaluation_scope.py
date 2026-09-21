@@ -32,14 +32,14 @@ def paths_for(base: Path) -> AppPaths:
 
 
 class EvaluationPresetTests(unittest.TestCase):
-    def test_a1_a2_and_a3_change_only_the_documented_parameters(self) -> None:
+    def test_a2_and_a3_change_only_the_documented_parameters(self) -> None:
         modes = builtin_modes()
         base = asdict(modes["default"].to_pipeline_config())
         for name, expected in (
-            ("colorhist", {"encoder_backend"}),
             ("no_quality_thresholds", {
                 "min_embedding_quality", "min_initial_blur_score",
-                "min_border_blur_score", "min_update_quality",
+                "min_border_blur_score", "min_initial_aspect_ratio_score",
+                "min_update_quality",
             }),
             ("no_update_similarity", {"min_update_similarity"}),
         ):
@@ -47,10 +47,10 @@ class EvaluationPresetTests(unittest.TestCase):
                 variant = asdict(modes[name].to_pipeline_config())
                 changed = {key for key in base if base[key] != variant[key]}
                 self.assertEqual(changed - {"mode_id", "mode_name"}, expected)
-        self.assertEqual(modes["colorhist"].encoder_backend, "colorhist")
         self.assertEqual(modes["no_quality_thresholds"].min_embedding_quality, 0)
         self.assertEqual(modes["no_quality_thresholds"].min_initial_blur_score, 0)
         self.assertEqual(modes["no_quality_thresholds"].min_border_blur_score, 0)
+        self.assertEqual(modes["no_quality_thresholds"].min_initial_aspect_ratio_score, 0)
         self.assertEqual(modes["no_quality_thresholds"].min_update_quality, 0)
         self.assertEqual(modes["no_update_similarity"].min_update_similarity, -1)
 
@@ -84,9 +84,9 @@ class EvaluationPresetTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             paths = paths_for(Path(folder))
             paths.ensure()
-            rogue = ModeConfig("default", "Replaced", "test", encoder_backend="colorhist")
+            rogue = ModeConfig("default", "Replaced", "test", match_threshold=.1)
             paths.mode_config_path.write_text(json.dumps({"modes": [asdict(rogue)]}), encoding="utf-8")
-            self.assertEqual(list_modes(paths)["default"].encoder_backend, "torchreid")
+            self.assertEqual(list_modes(paths)["default"].match_threshold, .82)
 
 
 class ReIdStoreScopeTests(unittest.TestCase):
@@ -176,10 +176,11 @@ class ReIdPipelineScopeTests(unittest.TestCase):
             pipeline.paths = paths_for(Path(folder))
             pipeline.paths.ensure()
             pipeline.config = PipelineConfig(
-                encoder_backend="colorhist", max_frames=0, draw_debug=draw,
+                max_frames=0, draw_debug=draw,
                 min_crop_width=1, min_crop_height=1, crop_padding=0,
                 min_good_frames_before_reid=1, min_embedding_quality=0, min_update_quality=0,
                 min_initial_blur_score=0, min_border_blur_score=0,
+                min_initial_aspect_ratio_score=0,
                 reid_every_n_frames=1, max_person_overlap_ratio=1,
             )
             capture = FakeCapture(len(detections))

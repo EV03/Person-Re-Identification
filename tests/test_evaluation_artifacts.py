@@ -25,10 +25,11 @@ from tests.test_pipeline_resources import FakeCapture, FakeWriter
 
 
 def config_for_test():
-    return PipelineConfig(encoder_backend="colorhist", max_frames=0, draw_debug=False,
+    return PipelineConfig(max_frames=0, draw_debug=False,
                           min_crop_width=1, min_crop_height=1, crop_padding=0,
                           min_good_frames_before_reid=3, min_embedding_quality=0,
                           min_initial_blur_score=0, min_border_blur_score=0,
+                          min_initial_aspect_ratio_score=0,
                           min_update_quality=0, reid_every_n_frames=1,
                           initial_candidate_every_n_frames=1)
 
@@ -121,26 +122,6 @@ class EvaluationArtifactTests(unittest.TestCase):
             self.assertEqual(run["processed_frames"], 5)
             self.assertTrue(capture.released and writer.released)
 
-    def test_expired_track_state_requires_a_new_profile_search(self):
-        box = Detection(1, (2, 5, 25, 44), .9)
-        config = replace(
-            config_for_test(), min_good_frames_before_reid=1,
-            reid_every_n_frames=100, track_state_ttl_frames=1,
-        )
-        with tempfile.TemporaryDirectory() as folder:
-            pipeline, result, _, _ = execute_pipeline(
-                paths_for(Path(folder)), [[box], [], [box]], config=config,
-            )
-            frames = [json.loads(line) for line in result.predictions_path.read_text().splitlines()]
-            manifest = json.loads(result.manifest_path.read_text())
-
-        self.assertEqual(frames[0]["detections"][0]["state"], "created_identity")
-        self.assertEqual(frames[2]["detections"][0]["state"], "matched_identity")
-        self.assertEqual(frames[2]["detections"][0]["match_reason"], "matched_existing_profile")
-        self.assertEqual(result.created_persons, 1)
-        self.assertEqual(result.matched_events, 1)
-        self.assertEqual(manifest["summary"]["expired_track_states"], 1)
-
     def test_portable_artifact_paths_survive_moving_the_experiment_folder(self):
         box = Detection(1, (2, 5, 25, 44), .9)
         with tempfile.TemporaryDirectory() as folder:
@@ -199,7 +180,7 @@ class EvaluationArtifactTests(unittest.TestCase):
     def test_model_start_failure_is_logged_before_capture_is_opened(self):
         with tempfile.TemporaryDirectory() as folder:
             paths = paths_for(Path(folder))
-            config = replace(config_for_test(), encoder_backend="torchreid", reid_checkpoint=str(Path(folder) / "missing.pth"))
+            config = replace(config_for_test(), reid_checkpoint=str(Path(folder) / "missing.pth"))
             pipeline = PersonReIdPipeline(config, paths, tracker=SequenceTracker([]))
             with patch.object(pipeline, "_open_capture") as open_capture:
                 with self.assertRaises(FileNotFoundError): pipeline.process("fixture.mp4")
@@ -293,7 +274,7 @@ class EvaluationArtifactTests(unittest.TestCase):
             def factory(config, paths):
                 pipeline = PersonReIdPipeline(config, paths, tracker=SequenceTracker([]))
                 return pipeline
-            config = replace(config_for_test(), encoder_backend="torchreid", reid_checkpoint=str(base / "missing.pth"))
+            config = replace(config_for_test(), reid_checkpoint=str(base / "missing.pth"))
             with self.assertRaises(FileNotFoundError):
                 run_unit([source], config, root=base / "experiments", base_paths=paths_for(base), pipeline_factory=factory)
             manifest = json.loads(next((base / "experiments").glob("*/experiment.json")).read_text())

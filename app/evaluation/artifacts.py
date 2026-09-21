@@ -96,8 +96,7 @@ def tracker_reference(tracker: str) -> dict[str, Any]:
 
 
 def model_references(config: PipelineConfig) -> dict[str, Any]:
-    checkpoint = (file_reference(resolve_project_file(config.reid_checkpoint))
-                  if config.encoder_backend == "torchreid" and config.reid_checkpoint else None)
+    checkpoint = file_reference(resolve_project_file(config.reid_checkpoint)) if config.reid_checkpoint else None
     if checkpoint:
         checkpoint["provenance"] = (DEFAULT_CHECKPOINT_PROVENANCE
                                     if checkpoint["sha256"] == DEFAULT_CHECKPOINT_SHA256
@@ -105,7 +104,7 @@ def model_references(config: PipelineConfig) -> dict[str, Any]:
     return {
         "detector": file_reference(resolve_project_file(config.yolo_model)),
         "tracker": tracker_reference(config.tracker),
-        "encoder": {"backend": config.encoder_backend, "model_name": config.reid_model_name,
+        "encoder": {"backend": "torchreid", "model_name": config.reid_model_name,
                     "checkpoint": checkpoint},
     }
 
@@ -251,6 +250,7 @@ class RunArtifacts:
             "below_candidate_quality": self._state_counts["below_candidate_quality"],
             "below_initial_blur": self._state_counts["below_initial_blur"],
             "below_border_blur": self._state_counts["below_border_blur"],
+            "below_initial_aspect_ratio": self._state_counts["below_initial_aspect_ratio"],
             "below_update_quality": self._state_counts["below_update_quality"],
             "invalid_crops": self._state_counts["invalid_crop"],
             "state_counts": dict(sorted(self._state_counts.items())),

@@ -1,4 +1,4 @@
-"""Exact accumulation, rejected identity updates and encoder-specific databases."""
+"""Exact accumulation, rejected identity updates and OSNet-specific databases."""
 
 from __future__ import annotations
 
@@ -189,6 +189,34 @@ class PipelineQualityGateTests(unittest.TestCase):
         ])
         self.assertEqual(len(pipeline.encoder.crops), 2)
 
+    def test_initial_aspect_ratio_is_a_hard_gate_with_inclusive_boundary(self):
+        box = Detection(7, (2, 5, 25, 44), .9)
+        config = replace(
+            config_for_test(), min_good_frames_before_reid=2,
+            min_initial_aspect_ratio_score=.50,
+        )
+        quality_results = [
+            (.9, {"blur": 1.0, "edge_cutoff": 1.0, "aspect_ratio": .49}),
+            (.9, {"blur": 1.0, "edge_cutoff": 1.0, "aspect_ratio": .50}),
+            (.9, {"blur": 1.0, "edge_cutoff": 1.0, "aspect_ratio": 1.0}),
+        ]
+        with tempfile.TemporaryDirectory() as folder, patch(
+            "app.pipeline.orchestrator.crop_quality_score", side_effect=quality_results,
+        ):
+            pipeline, result, _, _ = execute_pipeline(
+                paths_for(Path(folder)), [[box]] * 3, config=config,
+            )
+            frames = [json.loads(line) for line in result.predictions_path.read_text().splitlines()]
+            manifest = json.loads(result.manifest_path.read_text())
+
+        predictions = [frame["detections"][0] for frame in frames]
+        self.assertEqual([item["state"] for item in predictions], [
+            "below_initial_aspect_ratio", "waiting_for_initial_observations", "created_identity",
+        ])
+        self.assertEqual([item["initial_candidate_count"] for item in predictions], [0, 1, 2])
+        self.assertEqual(len(pipeline.encoder.crops), 2)
+        self.assertEqual(manifest["summary"]["below_initial_aspect_ratio"], 1)
+
     def test_known_track_below_update_quality_never_calls_encoder(self):
         calls, profiles, predictions, result = self.run_quality_sequence([.7, .60])
         self.assertEqual(calls, 1)
@@ -364,48 +392,48 @@ class EncoderDatabaseTests(unittest.TestCase):
     def test_scoped_paths_are_idempotent_and_switching_does_not_nest_namespaces(self):
         with tempfile.TemporaryDirectory() as folder:
             base = paths_for(Path(folder))
-            histogram = config_for_test()
-            osnet = replace(histogram, encoder_backend="torchreid",
-                            reid_checkpoint="data/models/nonexistent-for-path-test.pth")
-            scoped = paths_for_encoder(base, histogram)
-            self.assertEqual(scoped, paths_for_encoder(scoped, histogram))
-            switched = paths_for_encoder(scoped, osnet)
-            self.assertEqual(switched, paths_for_encoder(base, osnet))
-            self.assertEqual(scoped, paths_for_encoder(switched, histogram))
+            baseline = config_for_test()
+            variant = replace(baseline, reid_model_name="osnet_x0_5",
+                              reid_checkpoint="data/models/nonexistent-for-path-test.pth")
+            scoped = paths_for_encoder(base, baseline)
+            self.assertEqual(scoped, paths_for_encoder(scoped, baseline))
+            switched = paths_for_encoder(scoped, variant)
+            self.assertEqual(switched, paths_for_encoder(base, variant))
+            self.assertEqual(scoped, paths_for_encoder(switched, baseline))
 
-    def test_pipeline_scopes_explicit_base_paths_and_reuses_each_encoders_database(self):
+    def test_pipeline_scopes_explicit_base_paths_and_reuses_each_osnet_database(self):
         with tempfile.TemporaryDirectory() as folder:
             base = paths_for(Path(folder))
-            histogram = config_for_test()
-            osnet = replace(histogram, encoder_backend="torchreid",
-                            reid_checkpoint="data/models/nonexistent-for-path-test.pth")
-            first = PersonReIdPipeline(histogram, base)
-            other = PersonReIdPipeline(osnet, base)
-            again = PersonReIdPipeline(histogram, base)
-            self.assertEqual(first.paths, paths_for_encoder(base, histogram))
+            baseline = config_for_test()
+            variant = replace(baseline, reid_model_name="osnet_x0_5",
+                              reid_checkpoint="data/models/nonexistent-for-path-test.pth")
+            first = PersonReIdPipeline(baseline, base)
+            other = PersonReIdPipeline(variant, base)
+            again = PersonReIdPipeline(baseline, base)
+            self.assertEqual(first.paths, paths_for_encoder(base, baseline))
             self.assertNotEqual(first.store.db_path, other.store.db_path)
             self.assertEqual(first.store.db_path, again.store.db_path)
             self.assertFalse(base.db_path.exists())
 
-    def test_explicit_repository_keeps_its_path_even_with_custom_encoder_configuration(self):
+    def test_explicit_repository_keeps_its_path_with_custom_osnet_configuration(self):
         with tempfile.TemporaryDirectory() as folder:
             base = paths_for(Path(folder))
             store = SQLiteVectorStore(base.db_path)
-            config = replace(config_for_test(), encoder_backend="custom-encoder")
+            config = replace(config_for_test(), reid_model_name="osnet_x0_5")
             pipeline = PersonReIdPipeline(config, base, store=store)
             self.assertEqual(pipeline.paths, base)
             self.assertIs(pipeline.store, store)
 
-    def test_changing_encoder_separates_databases_and_switching_back_reuses_its_database(self):
+    def test_changing_osnet_model_separates_databases_but_thresholds_do_not(self):
         with tempfile.TemporaryDirectory() as folder:
             paths = paths_for(Path(folder))
-            osnet = PipelineConfig()
-            histogram = replace(osnet, encoder_backend="colorhist")
-            self.assertNotEqual(paths_for_encoder(paths, osnet).db_path,
-                                paths_for_encoder(paths, histogram).db_path)
-            self.assertEqual(paths_for_encoder(paths, osnet).db_path,
-                             paths_for_encoder(paths, replace(osnet, min_update_quality=.9)).db_path)
-            self.assertNotEqual(paths_for_encoder(paths, osnet).db_path, paths.db_path)
+            baseline = PipelineConfig()
+            variant = replace(baseline, reid_model_name="osnet_x0_5")
+            self.assertNotEqual(paths_for_encoder(paths, baseline).db_path,
+                                paths_for_encoder(paths, variant).db_path)
+            self.assertEqual(paths_for_encoder(paths, baseline).db_path,
+                             paths_for_encoder(paths, replace(baseline, min_update_quality=.9)).db_path)
+            self.assertNotEqual(paths_for_encoder(paths, baseline).db_path, paths.db_path)
 
     def test_checkpoint_contents_and_architecture_define_namespace_not_filename(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -423,10 +451,12 @@ class EncoderDatabaseTests(unittest.TestCase):
                 self.assertNotEqual(a, paths_for_encoder(paths, replace(config, reid_checkpoint="changed.pth")).db_path)
                 self.assertNotEqual(a, paths_for_encoder(paths, replace(config, reid_model_name="osnet_x0_5")).db_path)
 
-    def test_histogram_ignores_unused_osnet_settings(self):
-        config = PipelineConfig(encoder_backend="colorhist")
-        self.assertEqual(encoder_identity(config), encoder_identity(replace(config, reid_checkpoint="other.pth",
-                                                                            reid_model_name="unused")))
+    def test_matching_and_quality_thresholds_do_not_change_encoder_identity(self):
+        config = PipelineConfig()
+        self.assertEqual(
+            encoder_identity(config),
+            encoder_identity(replace(config, match_threshold=.2, min_update_quality=.9)),
+        )
 
 
 if __name__ == "__main__":

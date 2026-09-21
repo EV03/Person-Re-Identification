@@ -206,8 +206,8 @@ class PersonReIdPipeline:
                     resources.append(self.tracker)
                 if getattr(self, "encoder", None) is None:
                     self.encoder = build_encoder(
-                        self.config.encoder_backend, device=self.config.device,
-                        model_name=self.config.reid_model_name, checkpoint_path=self.config.reid_checkpoint,
+                        device=self.config.device, model_name=self.config.reid_model_name,
+                        checkpoint_path=self.config.reid_checkpoint,
                     )
                 if isinstance(self.encoder, ReleasableBackend) and self.encoder is not self.tracker:
                     resources.append(self.encoder)
@@ -367,14 +367,12 @@ class PersonReIdPipeline:
         track_to_last_score: dict[int, float | None] = {}
         track_candidates: dict[int, list[TrackEmbeddingCandidate]] = {}
         track_candidate_last_frame: dict[int, int] = {}
-        track_last_seen_frame: dict[int, int] = {}
         overlap_cooldown_until: dict[int, int] = {}
         created_persons = 0
         matched_events = 0
         frame_index = 0
         skipped_low_quality = 0
         skipped_overlap = 0
-        expired_track_states = 0
         waiting_for_good_frames = 0
         warnings: list[str] = []
 
@@ -393,24 +391,6 @@ class PersonReIdPipeline:
             frame_index += 1
 
             detections = self.tracker.track_frame(frame)
-            active_track_ids = {
-                detection.track_id for detection in detections if detection.track_id is not None
-            }
-            expired_track_ids = [
-                track_id for track_id, last_seen in track_last_seen_frame.items()
-                if frame_index - last_seen > self.config.track_state_ttl_frames
-            ]
-            for track_id in expired_track_ids:
-                track_to_person.pop(track_id, None)
-                track_to_last_score.pop(track_id, None)
-                track_candidates.pop(track_id, None)
-                track_candidate_last_frame.pop(track_id, None)
-                track_last_seen_frame.pop(track_id, None)
-                overlap_cooldown_until.pop(track_id, None)
-                expired_track_states += 1
-            for track_id in active_track_ids:
-                track_last_seen_frame[track_id] = frame_index
-
             overlap_by_detection: dict[int, float] = {index: 0.0 for index in range(len(detections))}
             for first_index, first in enumerate(detections):
                 for second_index in range(first_index + 1, len(detections)):
@@ -547,6 +527,12 @@ class PersonReIdPipeline:
                         and quality_details.get("blur", 1.0) < self.config.min_border_blur_score
                     ):
                         quality_rejection_state = "below_border_blur"
+                    elif (
+                        person_id is None
+                        and quality_details.get("aspect_ratio", 1.0)
+                        < self.config.min_initial_aspect_ratio_score
+                    ):
+                        quality_rejection_state = "below_initial_aspect_ratio"
                     elif person_id is not None and quality_score < self.config.min_update_quality:
                         quality_rejection_state = "below_update_quality"
                     if quality_rejection_state is not None:
@@ -754,9 +740,6 @@ class PersonReIdPipeline:
             warnings.append(f"Skipped low-quality ReID crops: {skipped_low_quality}")
         if skipped_overlap > 0:
             warnings.append(f"Skipped ReID crops due to person overlap or cooldown: {skipped_overlap}")
-        if expired_track_states > 0:
-            warnings.append(f"Expired run-local track states after absence: {expired_track_states}")
-        artifacts.add_runtime_summary(expired_track_states=expired_track_states)
         if waiting_for_good_frames > 0:
             warnings.append(
                 "Some tracks were not assigned immediately because the pipeline waited for enough good frames."

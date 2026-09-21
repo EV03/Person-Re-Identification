@@ -10,7 +10,7 @@ class ModeConfig(PipelineSettings):
     """Configuration preset for a selectable analysis mode.
 
     Presets configure the same person-ReID pipeline. Built-in presets represent
-    B0, A1, A2 and A3 from the evaluation plan; custom presets support pilot runs.
+    B0, A2 and A3 from the evaluation plan; custom presets support pilot runs.
     """
 
     mode_id: str

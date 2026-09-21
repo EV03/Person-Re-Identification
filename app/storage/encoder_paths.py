@@ -14,23 +14,17 @@ from app.evaluation.artifacts import resolve_project_file, sha256_file
 
 def encoder_identity(config: PipelineConfig) -> dict[str, object]:
     """Ignore match/quality thresholds; those do not define the feature space."""
-    backend = config.encoder_backend.lower().strip()
-    identity: dict[str, object] = {"profile_format": "weighted-sum-v2", "backend": backend}
-    if backend == "colorhist":
-        identity.update(bins=[16, 8, 8], preprocessing="opencv-hsv-histogram-v1")
-    elif backend == "torchreid":
-        checkpoint = resolve_project_file(config.reid_checkpoint)
-        identity.update(model=config.reid_model_name,
-                        checkpoint_sha256=sha256_file(checkpoint) if checkpoint.is_file() else None,
-                        missing_checkpoint=str(checkpoint) if not checkpoint.is_file() else None,
-                        preprocessing="torchreid-feature-extractor-defaults-v1")
-        for package in ("torchreid", "torchvision"):
-            try:
-                identity[package] = version(package)
-            except PackageNotFoundError:
-                identity[package] = None
-    else:
-        raise ValueError("Configure a profile repository explicitly for a custom encoder backend.")
+    identity: dict[str, object] = {"profile_format": "weighted-sum-v2", "backend": "torchreid"}
+    checkpoint = resolve_project_file(config.reid_checkpoint)
+    identity.update(model=config.reid_model_name,
+                    checkpoint_sha256=sha256_file(checkpoint) if checkpoint.is_file() else None,
+                    missing_checkpoint=str(checkpoint) if not checkpoint.is_file() else None,
+                    preprocessing="torchreid-feature-extractor-defaults-v1")
+    for package in ("torchreid", "torchvision"):
+        try:
+            identity[package] = version(package)
+        except PackageNotFoundError:
+            identity[package] = None
     return identity
 
 

@@ -8,17 +8,18 @@ Verbindliche Einstiegspunkte sind [README.md](README.md),
 ## Aktueller Umfang
 
 Video/Webcam, YOLO-Personendetektion, ByteTrack/BoT-SORT, qualitätsgefilterte
-Person-Crops, Initialpuffer, OSNet/Farbhistogramm, Cosine Matching, synthetische
+Person-Crops, Initialpuffer, OSNet, Cosine Matching, synthetische
 Personen-IDs, SQLite, annotierte Videos und Streamlit-Vorschau.
 
-B0/A1/A2/A3 sind als Ausgangspresets vorhanden. OSNet-x1.0 nutzt dokumentierte MSMT17-Gewichte
+B0/A2/A3 sind als Ausgangspresets vorhanden. OSNet-x1.0 nutzt dokumentierte MSMT17-Gewichte
 ohne eigenes Fine-Tuning. Vollständige Frame-Exporte, getrennte Entscheidungs-/
 Snapshotframes, isolierte Versuchseinheiten und Laufmanifeste sind implementiert.
-Die quantitative Evaluation und Auswertung annotierter Clips stehen noch aus.
-Es liegen keine aus diesem Stand erhobenen quantitativen Ergebnisse vor.
-Der reduzierte Plan umfasst vier Versuchsgruppen und zwölf getrennte Testsequenzen,
-jeweils mit vier eingefrorenen Pilotkonfigurationen (48 Kernläufe). Annotiert werden
-Ereignisse und ausgewählte Übergangsfenster, keine vollständigen Trackingtrajektorien.
+Die explorative Evaluation ist durchgeführt. Je ein Clip aus vier Versuchsgruppen
+wurde mit drei eingefrorenen Konfigurationen verarbeitet (zwölf Kernläufe).
+B0 und A3 erreichten 5/6, A2 3/6 korrekte Rückkehrentscheidungen. Annotiert wurden
+Ereignisse und ein ausgewähltes Übergangsfenster, keine vollständigen
+Trackingtrajektorien. Der ursprünglich geplante größere Bestand mit zwölf
+Testsequenzen und 36 Läufen wurde nicht erhoben.
 
 ## Versionsabgrenzung
 
@@ -42,10 +43,10 @@ Neue ReID-Presets verwenden `data/modes/reid_presets.json`; die bisherige
 
 - Bestehende Fixes für Ressourcenfreigabe, Reset-Pfade und Upload-Lebenszyklus integriert.
 - Zusatzmodule, ihre Konfigurationsfelder, UI-Elemente und Schema-Erzeugung entfernt.
-- B0/A1/A2/A3 aus einer gemeinsamen Basis abgeleitet und Preset-Namen korrekt übertragen.
+- B0/A2/A3 aus einer gemeinsamen Basis abgeleitet und Preset-Namen korrekt übertragen.
 - Analysebild und Annotation getrennt.
 - Sichtbare bekannte Personen-IDs vor dem Matching neuer Tracks reserviert.
-- Dokumentation auf den tatsächlichen Hauptpfad und offene Evaluationsvoraussetzungen ausgerichtet.
+- Dokumentation und Paper auf den tatsächlichen Hauptpfad und die erhobene Vier-Video-Evaluation ausgerichtet.
 
 ## Arbeitsweise
 

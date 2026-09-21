@@ -1,4 +1,4 @@
-"""Example: python -m app.evaluation --sources video.mp4 --modes default colorhist --repetitions 3"""
+"""Example: python -m app.evaluation --sources video.mp4 --modes default no_quality_thresholds"""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ def main() -> None:
     parser.add_argument("--sources", nargs="+", required=True, type=Path,
                         help="One clip, or related registration/return clips sharing profiles within one test sequence.")
     parser.add_argument("--modes", nargs="+", choices=sorted(list_modes(paths)),
-                        default=["default", "colorhist", "no_quality_thresholds", "no_update_similarity"])
+                        default=["default", "no_quality_thresholds", "no_update_similarity"])
     parser.add_argument("--repetitions", type=int, default=1)
     parser.add_argument("--root", type=Path, default=None)
     parser.add_argument("--checkpoint", default=None)

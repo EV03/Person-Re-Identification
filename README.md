@@ -2,19 +2,20 @@
 
 `main` enthält den ReID-Kern für die dokumentierten Projektversuche:
 Video oder Webcam, YOLO-Personendetektion, ByteTrack/BoT-SORT, Person-Crops,
-Qualitätsprüfung, OSNet/Farbhistogramm, synthetische Personen-IDs und SQLite.
+Qualitätsprüfung, OSNet, synthetische Personen-IDs und SQLite.
 
 **Start für Mitwirkende:** [Codebase Guide](docs/CODEBASE_GUIDE.md).
 **Eigene Tracker und Verfahren:** [Backend-Schnittstellen](docs/EXTENDING_BACKENDS.md).
 **Profilrechnung und Profilschutz:** [Personenprofile](docs/PROFILE_UPDATES.md).
 **Umfang und offene Voraussetzungen:** [Evaluationsstand](docs/EVALUATION_SCOPE.md).
 **Versuchsplan und Paper:** [LaTeX-Quelle](docs/technische_systemdokumentation.tex).
+**Vier vorhandene Gruppenclips auswerten:** [Vier-Video-Evaluation](docs/FOUR_VIDEO_EVALUATION.md).
 
-Die quantitative Evaluation steht noch aus. B0/A1/A2/A3 verwenden dokumentierte
-ReID-Gewichte beziehungsweise Farbhistogramme. Vollständige Frame-Exporte,
-isolierte Versuchsläufe und technische Laufmanifeste sind implementiert.
-Vor der eigentlichen Messung fehlen noch annotierte Pilot-/Testclips und deren
-Metrikauswertung; technische Smoke-Tests belegen keine Erkennungsgenauigkeit.
+Die explorative Vier-Video-Evaluation ist abgeschlossen. Vier Gruppenclips wurden
+mit B0, A2 und A3 in zwölf isolierten Läufen verarbeitet und ereignisbasiert
+ausgewertet. B0 und A3 erkannten jeweils 5/6 Rückkehrereignissen korrekt, A2 3/6.
+Versuchsaufbau, Resultate und Grenzen stehen im Paper; die reproduzierbare
+Kurzfassung liegt unter [Evaluationsresultate](docs/evaluation/four_group_results.md).
 
 ## Branches
 
@@ -58,15 +59,16 @@ automatische Paketinstallationen während der Verarbeitung sind deaktiviert.
 
 | CLI-Preset | Paper | Encoder | Kandidaten-/Updateschwelle |
 |---|---|---|---|
-| `default` | B0 | OSNet | 0,55 / 0,65; Schärfe 0,40 / 0,45 |
-| `colorhist` | A1 | HSV-Farbhistogramm | 0,55 / 0,65; Schärfe 0,40 / 0,45 |
+| `default` | B0 | OSNet | 0,55 / 0,65; Schärfe 0,40 / 0,45; Personenformat 0,50 |
 | `no_quality_thresholds` | A2 | OSNet | alle Qualitätsgrenzen 0 |
-| `no_update_similarity` | A3 | OSNet | 0,55 / 0,65; Schärfe 0,40 / 0,45 |
+| `no_update_similarity` | A3 | OSNet | 0,55 / 0,65; Schärfe 0,40 / 0,45; Personenformat 0,50 |
 
-Alle Presets verwenden zunächst YOLOv8n, ByteTrack, Cosine-Schwellwert 0,82,
-Detektionskonfidenz 0,35, Eingangsgröße 640, fünf Initialbeobachtungen im Abstand
-von drei Frames und Updates alle zehn Frames. Die Mindest-Crop-Größe beträgt
-30 x 80 Pixel.
+Die eingebauten Ausgangspresets verwenden zunächst YOLOv8n, ByteTrack,
+Cosine-Schwellwert 0,82, Detektionskonfidenz 0,35, Eingangsgröße 640, fünf
+Initialbeobachtungen im Abstand von drei Frames und Updates alle zehn Frames.
+Die Mindest-Crop-Größe beträgt 30 x 80 Pixel. Für die berichtete Evaluation wurde
+das gespeicherte Preset `best-calibrated` mit Matching- und Updateschwelle 0,75
+sowie einem Updateintervall von fünf Frames verwendet.
 A2 behält Mindestgrößen, Qualitätsgewichtung und Snapshot-Auswahl bei.
 A3 verändert nur `min_update_similarity` auf -1: Updates und Qualitätsgrenzen
 bleiben aktiv, die zusätzliche Ähnlichkeitsprüfung ist aus. Die anderen Presets
@@ -76,30 +78,29 @@ Für einen vollständigen Clip ausdrücklich `--max-frames 0` verwenden; der
 interaktive Standard begrenzt den Lauf auf 500 Frames.
 
 ```powershell
-python -m app.main --source data/input/pilot.mp4 --mode colorhist --max-frames 0
 python -m app.main --source data/input/pilot.mp4 --mode default --max-frames 0
 python -m app.main --source data/input/pilot.mp4 --mode no_quality_thresholds --max-frames 0
 ```
 
-Diese Befehle verwenden einen geteilten Bestand **pro Encoder-Konfiguration**.
-Andere Encoder/Checkpoint-Inhalte erhalten andere Datenbanken. Unabhängige
+Diese Befehle verwenden einen geteilten Bestand **pro OSNet-Konfiguration**.
+Andere Architekturen oder Checkpoint-Inhalte erhalten andere Datenbanken. Unabhängige
 Versuchseinheiten brauchen getrennte Ausgangszustände und Pfade; die Befehle
 allein stellen noch keinen isolierten Vergleichslauf her.
 
-Für die eigentliche Evaluation stattdessen den isolierten Versuchsstarter nutzen:
+Für weitere isolierte Versuche den Versuchsstarter nutzen:
 
 ```powershell
 python -m app.evaluation --sources data/input/pilot.mp4
 ```
 
-Das verarbeitet das vollständige Video mit den vier eingebauten Ausgangspresets,
-je Variante mit neuer Datenbank. Für die finale, reduzierte Evaluation werden
-zunächst vier kalibrierte Kopien in der UI gespeichert. Zwölf getrennte Testsequenzen
-in vier Versuchsgruppen ergeben **48 Kernläufe**, keine durchgehende Frameannotation.
-Jede Sequenz separat starten, beispielsweise:
+Das verarbeitet das vollständige Video mit den drei eingebauten Ausgangspresets,
+je Variante mit neuer Datenbank. Die tatsächlich berichtete Fallstudie verwendete
+je einen Clip aus vier Versuchsgruppen und damit zwölf Läufe. Der ursprünglich
+größer geplante Bestand mit zwölf Sequenzen und 36 Läufen wurde nicht erhoben.
+Eine weitere Sequenz lässt sich beispielsweise so starten:
 
 ```powershell
-python -m app.evaluation --sources data/input/g2_take1.mp4 --modes eval_b0 eval_a1 eval_a2 eval_a3 --device cpu
+python -m app.evaluation --sources data/input/g2_take1.mp4 --modes eval_b0 eval_a2 eval_a3 --device cpu
 ```
 
 Die `eval_*`-Presets sind selbst zu speichern; eingebaute Varianten übernehmen
@@ -184,8 +185,8 @@ python -m unittest discover -s tests -v
 Die Regressionstests laufen ohne Kamera und ohne Modell-Downloads. Sie prüfen
 Ressourcenfreigabe, Uploads, Pfadschutz, vollständiges UI-Editieren/Speichern/Laden,
 die tatsächlich gestartete Konfiguration, Datenhaltung und die Trennung von
-Analysebildern und Annotation. Ein Modell-Smoke-Test und die quantitative
-Evaluation sind davon getrennte Prüfungen.
+Analysebildern und Annotation. Ein Modell-Smoke-Test und die ausgeführte
+Vier-Video-Evaluation sind davon getrennte Prüfungen.
 
 Echte Modell-/Video-Smoke-Tests nach Einrichtung der Gewichte:
 

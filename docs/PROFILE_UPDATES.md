@@ -60,6 +60,10 @@ Schärfegrenzen: `min_initial_blur_score` für jeden Initialkandidaten und die
 strengere Grenze `min_border_blur_score`, wenn die Bounding-Box einen Bildrand
 berührt. Die Standardwerte sind 0,40 und 0,45. Abgelehnte Bilder füllen den
 Initialpuffer nicht; der unbekannte Track wartet weiter auf bessere Crops.
+`min_initial_aspect_ratio_score` verlangt zusätzlich einen Mindestwert für ein
+personentypisches Verhältnis von Höhe zu Breite. Der Standardwert 0,50 verwirft
+offensichtlich breite Nahaufnahmen, deren niedriger Formwert sonst durch Größe,
+Helligkeit und Schärfe in der gewichteten Gesamtqualität ausgeglichen würde.
 
 Vor der Cropqualität greift eine separate Überlappungssperre. Für jedes Paar
 erkannter Personen wird die Schnittfläche relativ zur kleineren Bounding-Box
@@ -124,9 +128,8 @@ UI und normale CLI verwenden für geteilte Läufe:
 
 `data/db/encoders/<encoder_key>/reid.sqlite3`.
 
-Der Schlüssel umfasst Backend, Architektur, Checkpoint-Inhalt und den
-Vorverarbeitungsvertrag (bei Torchreid auch relevante Paketversionen).
-Farbhistogramme ignorieren ungenutzte OSNet-Einstellungen. Gleiche Gewichte
+Der Schlüssel umfasst OSNet-Architektur, Checkpoint-Inhalt und den
+Vorverarbeitungsvertrag einschließlich relevanter Paketversionen. Gleiche Gewichte
 unter anderem Dateinamen erhalten denselben Schlüssel; geänderte Gewichte
 einen anderen. Wieder zum ursprünglichen Encoder wechseln verwendet seinen
 bisherigen Bestand. Der Pfad wird in der UI bzw. normalen CLI angezeigt.
@@ -150,7 +153,7 @@ Altprofile ohne rohe Summe lassen sich nicht exakt rekonstruieren: Bei einem
 Update in einem ausdrücklich wiederverwendeten Altbestand gibt es eine
 verständliche Fehlermeldung, statt einer erfundenen Summe.
 
-Die neue Methode gilt konsistent für B0/A1/A2/A3. A3 deaktiviert nur den
+Die neue Methode gilt konsistent für B0/A2/A3. A3 deaktiviert nur den
 Ähnlichkeitsschutz mit `min_update_similarity=-1`, nicht die Profilupdates.
 A2 entfernt nur Qualitätsgrenzen,
 nicht den Ähnlichkeitsschutz oder die Gewichtung. Code, Parameter und Gewichte

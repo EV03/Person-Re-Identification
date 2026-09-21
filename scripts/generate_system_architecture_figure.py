@@ -119,7 +119,7 @@ def generate(output_path: Path) -> None:
 
     draw_box(pdf, 276, 84, 72, 34, ["Personen-", "ausschnitt"])
     draw_box(pdf, 190, 84, 70, 34, ["Größen- und", "Qualitätsprüfung"])
-    draw_box(pdf, 105, 84, 69, 34, ["ReID-Encoder", "OSNet / Histogramm"], bold_first=True, font_size=7.2)
+    draw_box(pdf, 105, 84, 69, 34, ["ReID-Encoder", "OSNet"], bold_first=True, font_size=7.2)
     draw_box(
         pdf,
         12,
