@@ -9,7 +9,7 @@ Für Initialkandidaten gelten zusätzlich eigene Mindestgrenzen, die unabhängig
 
 Erst wenn alle Grenzen erfüllt sind, berechnet OSNet-x1.0 ein 512-dimensionales Embedding~\cite{zhou2019osnet}, dessen Gewichte aus dem Training auf MSMT17 stammen~\cite{torchreid-modelzoo}. Eigenes Training oder Fine-Tuning findet nicht statt.
 
-Vor der ersten Zuordnung sammelt das System fünf akzeptierte Ausschnitte derselben Spur. Zwischen zwei angenommenen Ausschnitten müssen dabei mindestens drei Frames liegen, damit nicht nur nahezu identische Nachbarbilder in das Initialprofil eingehen; dieser Abstand wird ausschließlich zwischen angenommenen Ausschnitten gezählt, ein abgelehnter Versuch verändert ihn nicht. Ein abgelehnter Ausschnitt füllt den Initialpuffer entsprechend nicht, und die Spur bleibt so lange unbekannt, bis eine spätere, besser geeignete Beobachtung vorliegt.
+Vor der ersten Zuordnung sammelt das System fünf akzeptierte Ausschnitte derselben Spur. Jeder geeignete Frame kann einen Kandidaten beitragen; ein zusätzlicher zeitlicher Mindestabstand besteht nicht. Ein abgelehnter Ausschnitt füllt den Initialpuffer nicht, und die Spur bleibt so lange unbekannt, bis eine spätere, besser geeignete Beobachtung vorliegt.
 
 Sobald fünf Ausschnitte angenommen wurden, werden ihre normalisierten Embeddings $z_i$ qualitätsgewichtet zusammengeführt:
 \begin{equation}

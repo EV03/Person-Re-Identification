@@ -110,15 +110,12 @@ class PipelineQualityGateTests(unittest.TestCase):
         self.assertEqual(profiles[0].observations, 3)
         self.assertAlmostEqual(profiles[0].embedding_weight_sum, .55 + .60 + .55)
 
-    def test_initial_candidates_are_spaced_by_the_configured_frame_interval(self):
+    def test_initial_candidates_are_collected_from_consecutive_accepted_frames(self):
         box = Detection(7, (2, 5, 25, 44), .9)
-        config = replace(
-            config_for_test(), min_good_frames_before_reid=3,
-            initial_candidate_every_n_frames=3,
-        )
+        config = replace(config_for_test(), min_good_frames_before_reid=3)
         with tempfile.TemporaryDirectory() as folder:
             pipeline, result, _, _ = execute_pipeline(
-                paths_for(Path(folder)), [[box]] * 7, config=config,
+                paths_for(Path(folder)), [[box]] * 3, config=config,
             )
             frames = [json.loads(line) for line in result.predictions_path.read_text().splitlines()]
             observations = pipeline.store.iter_profiles()[0].observations
@@ -127,11 +124,7 @@ class PipelineQualityGateTests(unittest.TestCase):
         self.assertEqual(observations, 3)
         self.assertEqual([frame["detections"][0]["state"] for frame in frames], [
             "waiting_for_initial_observations",
-            "waiting_for_candidate_interval",
-            "waiting_for_candidate_interval",
             "waiting_for_initial_observations",
-            "waiting_for_candidate_interval",
-            "waiting_for_candidate_interval",
             "created_identity",
         ])
 

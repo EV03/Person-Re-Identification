@@ -85,15 +85,15 @@ ByteTrack ordnet die verbleibenden Detektionen anhand der Boxpositionen und der 
 \label{sec:new-profile}
 Solange eine Spur noch keine Personenkennung besitzt, wird sie als Kandidat für ein neues Profil betrachtet. Die Personenausschnitte werden dabei aus dem ursprünglichen Frame entnommen, bevor Boxen oder Trackkennungen eingezeichnet werden. Boxen ohne Trackkennung tragen nicht zu einem Personenprofil bei. Das System prüft zunächst für jeden Ausschnitt der Spur, ob er geometrisch gültig ist und die Mindestgrö{\ss}e erfüllt.
 
-Vor der Merkmalsberechnung prüft das System die Überdeckung gleichzeitig erkannter Personen. Überschreitet die Schnittfläche relativ zur kleineren Bounding Box den konfigurierten Grenzwert, werden für beide Spuren weder Initialkandidaten noch Profilupdates erzeugt. Anschlie{\ss}end bleibt die Merkmalsberechnung für eine kurze Abkühlphase gesperrt. Bei einer noch unbekannten Spur wird zusätzlich der bisherige Initialpuffer verworfen, damit Ausschnitte vor und nach einer Kreuzung nicht gemeinsam ein Profil bilden. Die genaue Berechnung steht in Anhang~\ref{app:profile-details}.
-
 Anschlie{\ss}end ermittelt das System Schärfe, Helligkeit, Grö{\ss}e, Seitenverhältnis, Randkontakt und Detektionskonfidenz. Daraus wird ein gewichteter Qualitätswert $Q$ zwischen null und eins berechnet. Schärfe und Grö{\ss}e erhalten dabei das höchste Gewicht.
 
-Ein Initialkandidat muss zunächst die Gesamtqualitätsschwelle $Q\geq q_{\mathrm{init}}$ erfüllen. Zusätzlich gelten eigene Mindestgrenzen, die unabhängig vom Gesamtwert $Q$ geprüft werden: Die Schärfe muss mindestens $s_{\mathrm{init}}$ erreichen, die Bewertung des Seitenverhältnisses mindestens $a_{\mathrm{init}}$. Berührt die ursprüngliche Bounding Box einen Bildrand, gilt au{\ss}erdem die strengere Schärfegrenze $s_{\mathrm{Rand}}$. Gleichzeitig nimmt der Randteilwert $R$ in der Berechnung von $Q$ den Wert $\rho_{\mathrm{Rand}}$ an. Die harte Randschärfegrenze übernimmt dabei den wesentlichen Ausschluss unscharfer Randansichten; der verringerte Randteilwert senkt $Q$ ergänzend. Eine gute Grö{\ss}e oder Helligkeit kann einen offensichtlich unscharfen oder untypisch breiten Ausschnitt dadurch nicht allein über $Q$ ausgleichen. Die konkreten Parameterwerte wurden in den Pilotläufen festgelegt und stehen in Tabelle~\ref{tab:pilot-grid}. Die Berechnung beschreibt Anhang~\ref{app:profile-details}.
+Ein Initialkandidat muss zusätzlich zur Gesamtqualitätsschwelle $Q\geq q_{\mathrm{init}}$ zwei eigene Mindestgrenzen erfüllen, die unabhängig vom Gesamtwert $Q$ gelten: eine für die Schärfe $s_{\mathrm{init}}$ und eine für die Bewertung des Seitenverhältnisses $a_{\mathrm{init}}$. Berührt die ursprüngliche Bounding Box einen Bildrand, verschärft sich die Schärfegrenze zusätzlich auf $s_{\mathrm{Rand}}$, während gleichzeitig der Randteilwert $R$ in der Berechnung von $Q$ auf $\rho_{\mathrm{Rand}}$ sinkt. Ein randberührender, unscharfer Ausschnitt wird so über zwei Wege erfasst: einmal durch den niedrigeren Gesamtwert $Q$, einmal durch die eigene Schärfegrenze. Eine gute Grö{\ss}e oder Helligkeit kann einen deutlich unscharfen oder untypisch breiten Ausschnitt dadurch nicht allein über $Q$ ausgleichen. Die konkreten Parameterwerte stehen in Tabelle~\ref{tab:pilot-grid}, die Berechnung beschreibt Anhang~\ref{app:profile-details}.
 
-Erst wenn die für die jeweilige Konfiguration festgelegten Grenzen erfüllt sind, berechnet OSNet-x1.0 ein 512-dimensionales Embedding~\cite{zhou2019osnet}, dessen Gewichte aus dem Training auf MSMT17 stammen~\cite{torchreid-modelzoo}. Die Torchreid-Vorverarbeitung skaliert den RGB-Ausschnitt auf $256\times128$ Pixel, wandelt ihn in einen Tensor um und normalisiert die Kanäle mit den ImageNet-Mittelwerten $(0{,}485,0{,}456,0{,}406)$ und Standardabweichungen $(0{,}229,0{,}224,0{,}225)$. Eigenes Training oder Fine-Tuning findet nicht statt.
+Erfüllt ein Ausschnitt alle für die jeweilige Konfiguration geltenden Grenzen, berechnet OSNet-x1.0 ein 512-dimensionales Embedding~\cite{zhou2019osnet}. Die verwendeten Modellgewichte stammen aus dem Training auf MSMT17~\cite{torchreid-modelzoo}. Eigenes Training oder Fine-Tuning findet nicht statt.
 
-Vor der ersten Zuordnung sammelt das System fünf akzeptierte Ausschnitte derselben Spur. Die Frameindizes zweier aufeinanderfolgend angenommener Ausschnitte müssen sich um mindestens drei unterscheiden. Bei 30 FPS entspricht dies 0,10 Sekunden; fünf frühestmöglich angenommene Ausschnitte umfassen damit 0,40 Sekunden. Der Abstand sorgt nur für eine geringe zeitliche Streuung und garantiert keine unabhängigen Ansichten. Abgelehnte Ausschnitte verändern den Frameindex des zuletzt angenommenen Kandidaten nicht. Eine Höchstspanne für den Puffer gibt es nicht. Erreicht eine Spur vor einem Überlappungsreset oder dem Videoende keine fünf Kandidaten, bleibt sie ohne Personenkennung.
+Vor der ersten Profilentscheidung sammelt das System die ersten fünf akzeptierten Embeddings derselben Spur in einem Initialpuffer. Jeder geeignete Frame kann einen Kandidaten beitragen, abgelehnte Ausschnitte werden dabei nicht aufgenommen. Erreicht eine Spur bis zum Videoende keine fünf Kandidaten, bleibt sie ohne Personenkennung.
+
+Um vermischte Ausschnitte bei einer Kreuzung zu begrenzen, prüft das System vor der Merkmalsberechnung die Überdeckung gleichzeitig erkannter Personen. Überschreitet die Schnittfläche relativ zur kleineren Bounding Box den konfigurierten Grenzwert, nimmt das System keinen Initialkandidaten auf und leert den bestehenden Initialpuffer der betroffenen unbekannten Spur. Während einer anschlie{\ss}enden kurzen Abkühlphase sammelt es ebenfalls keine Kandidaten. Dadurch gehen Ausschnitte vor und nach einer erkannten Kreuzung nicht gemeinsam in die erste Profilentscheidung ein. Die genaue Berechnung steht in Anhang~\ref{app:profile-details}.
 
 Sobald fünf Ausschnitte angenommen wurden, werden ihre normalisierten Embeddings $z_i$ qualitätsgewichtet zusammengeführt:
 \begin{equation}
@@ -101,7 +101,7 @@ Sobald fünf Ausschnitte angenommen wurden, werden ihre normalisierten Embedding
 \qquad w_i=\max(Q_i,0{,}05).
 \label{eq:fusion}
 \end{equation}
-Das Mindestgewicht $0{,}05$ ist eine defensive Untergrenze für ungültig niedrige externe Gewichte. Bei den hier geometrisch gültigen und detektierten Ausschnitten liegt $Q$ bereits darüber, sodass die Untergrenze in den berichteten Läufen keine praktische Wirkung hat. Die Division durch die Gewichtssumme ändert wegen der anschlie{\ss}enden Normalisierung nicht die Richtung von $\bar z$, beschreibt aber den verwendeten gewichteten Mittelwert.
+Das feste Mindestgewicht $0{,}05$ sorgt dafür, dass auch bei deaktivierten Qualitätsschwellen jeder Beitrag zählt.
 
 Gegen dieses zusammengeführte Embedding vergleicht das System alle zulässigen gespeicherten Profile mittels
 Cosine Similarity. Für zwei normalisierte Vektoren $z_q$ und $z_p$ entspricht dies dem Skalarprodukt:
@@ -109,28 +109,27 @@ Cosine Similarity. Für zwei normalisierte Vektoren $z_q$ und $z_p$ entspricht d
 s(z_q,z_p)=z_q^\top z_p.
 \label{eq:cosine}
 \end{equation}
-Bereits im aktuellen Frame sichtbare Personenkennungen werden dabei von der Auswahl ausgeschlossen, um Doppelzuweisungen zu vermeiden.
-Erreicht das ähnlichste Profil den Matching-Schwellwert $\tau_{\mathrm{match}}$, wird seine Personenkennung der Spur zugeordnet. Andernfalls wird ein neues Profil mit einer neuen Personenkennung angelegt und der Spur zugeordnet. Ein zusätzlicher Mindestabstand zum zweitbesten Profil wird nicht geprüft. Neben dem Ergebnis werden auch das ähnlichste geprüfte Profil, sein Score und der Ablehnungsgrund protokolliert. Dadurch bleibt ein knapp verfehlter Profilabgleich nachträglich nachvollziehbar.
+Bereits im aktuellen Frame sichtbare Personenkennungen schlie{\ss}t das System dabei von der Auswahl aus, um Doppelzuweisungen zu vermeiden. Erreicht das ähnlichste Profil den Matching-Schwellwert $\tau_{\mathrm{match}}$, ordnet das System seine Personenkennung der Spur zu. Andernfalls legt es ein neues Profil mit einer neuen Personenkennung an und ordnet es der Spur zu. Ein zusätzlicher Mindestabstand zum zweitbesten Profil wird dabei nicht geprüft. Neben dem Ergebnis protokolliert das System auch das ähnlichste geprüfte Profil, seinen Score und den Ablehnungsgrund. So bleibt ein knapp verfehlter Profilabgleich nachträglich nachvollziehbar.
 
-Im ersten Fall wird das zusammengeführte Embedding zusätzlich gegen die Update-Ähnlichkeitsschwelle $\tau_{\mathrm{upd}}$ aus Abschnitt~\ref{sec:profile-update} geprüft, bevor die fünf gewichteten Einzelbeiträge in das bestehende Profil einflie{\ss}en. In B0 sind $\tau_{\mathrm{match}}$ und $\tau_{\mathrm{upd}}$ identisch. Die zweite Prüfung kann nach einem erfolgreichen Match daher nicht scheitern und bietet dort keinen zusätzlichen Schutz. Allgemein bleiben beide Parameter getrennt konfigurierbar. Die Ähnlichkeit eines aus fünf Ausschnitten fusionierten Initialvektors und die Ähnlichkeit eines einzelnen Updateausschnitts folgen zudem nicht zwingend derselben Verteilung; gleiche Zahlenwerte sind deshalb nicht automatisch gleich streng.
+Im ersten Fall prüft das System das zusammengeführte Embedding zusätzlich gegen die Update-Ähnlichkeitsschwelle $\tau_{\mathrm{upd}}$ aus Abschnitt~\ref{sec:profile-update}, bevor es in das bestehende Profil einflie{\ss}t. Eine wiedergefundene Person durchläuft damit denselben Update-Schutz wie ein reguläres Update. Wird diese Schwelle nicht erreicht, bleibt die Personenkennung zugeordnet, das Profil selbst aber unverändert.
 
 \subsection{Aktualisierung eines zugeordneten Profils}
 \label{sec:profile-update}
 
 Sobald eine Spur eine Personenkennung besitzt, wird die Suche nach einem Profil abgeschlossen. In der verwendeten Referenzkonfiguration wird alle fünf Frames ein Profilupdate mit dem Personenausschnitt der Spur aus genau diesem Frame versucht.
 
-Für ein Update muss der Ausschnitt die geometrischen Mindestanforderungen erfüllen. Sein Qualitätswert $Q$ wird dabei wie in Abschnitt~\ref{sec:new-profile} berechnet und muss $Q\geq q_{\mathrm{upd}}$ erfüllen. Die zusätzlichen Initialgrenzen für Schärfe und Seitenverhältnis gelten nicht für eine bereits zugeordnete Spur; Überlappung und Abkühlphase sperren dagegen auch reguläre Updates. Dadurch kann bei Updates ein schwacher Schärfeteilwert durch andere gute Teilwerte kompensiert werden. Die höhere Gesamtqualitätsschwelle begrenzt dies, stellt aber keine eigene Schärfegarantie dar.
+Für ein Update muss der Ausschnitt die geometrischen Mindestanforderungen erfüllen. Sein Qualitätswert $Q$ wird dabei wie in Abschnitt~\ref{sec:new-profile} berechnet und muss $Q\geq q_{\mathrm{upd}}$ erfüllen. Die zusätzlichen Initialgrenzen für Schärfe und Seitenverhältnis gelten nicht für eine bereits zugeordnete Spur. Überlappung und Abkühlphase sperren dagegen auch reguläre Updates. Dadurch kann bei Updates ein schwacher Schärfeteilwert durch andere gute Teilwerte kompensiert werden. Die höhere Gesamtqualitätsschwelle begrenzt dies, stellt aber keine eigene Schärfegarantie dar.
 Ebenfalls muss das Embedding laut Gleichung~\ref{eq:cosine} mindestens die Update-Ähnlichkeitsschwelle $\tau_{\mathrm{upd}}$ zum aktuell zugeordneten Profil erreichen. Scheitert eine der geometrischen, qualitativen, überdeckungsbezogenen oder ähnkeitsbezogenen Prüfungen, bleibt das Profil unverändert. Die Personenkennung der Spur bleibt weiterhin erhalten.
 
 Dieser Schutz korrigiert also keine falsche Profilzuordnung, sondern verhindert nur, dass ein zweifelhafter Ausschnitt ein bestehendes Profil verfälscht. Eine einmal zugeordnete Spur wird nicht erneut gegen alle Profile geprüft. Ein Track-ID-Wechsel kann daher eine falsche Personenkennung an der Spur belassen, und ein fälschlich angelegtes Doppelprofil wird nicht automatisch zusammengeführt. Der Schutz kann au{\ss}erdem dazu führen, dass korrekte neue Ansichten einer Person nicht für ein Profilupdate berücksichtigt werden.
 
-Wird ein Update angenommen, speichert das System die Beobachtungen als kumulative gewichtete Summe. Im Profil liegen die gewichtete Embeddingsumme $E$ und die Gewichtssumme $W$. Für ein neues Embedding $z$ mit Gewicht $w=\max(Q,0{,}05)$ gilt
+Wird ein Update angenommen, ergänzt das System das bestehende Profil, statt dessen Embedding zu ersetzen. Im Profil gespeichert sind die gewichtete Embeddingsumme $E$ und die Gewichtssumme $W$. Für ein neues Embedding $z$ mit Gewicht $w=\max(Q,0{,}05)$ gilt
 \begin{equation}
 E_{\mathrm{neu}}=E+wz,\qquad W_{\mathrm{neu}}=W+w,\qquad
 p_{\mathrm{neu}}=\operatorname{norm}(E_{\mathrm{neu}}/W_{\mathrm{neu}}).
 \label{eq:profile-update}
 \end{equation}
-Beim Anlegen eines Profils werden $E$ und $W$ mit Summe und Gewichtssumme der fünf Initialbeobachtungen initialisiert. Bei einem Match wird derselbe Fünferblock als Ganzes zum bestehenden Profil addiert, sofern $\tau_{\mathrm{upd}}$ erfüllt ist. Da $\operatorname{norm}(E/W)=\operatorname{norm}(E)$ gilt, wird $W$ für die Richtungsberechnung nicht benötigt; es hält jedoch die kumulierte Gewichtung für spätere Ergänzungen nachvollziehbar. Die fünf Initialbeobachtungen bleiben rechnerisch enthalten, ihr relativer Einfluss nimmt mit jedem weiteren Update ab. Ohne Begrenzung oder Vergessensfaktor kann das Profil nach vielen Updates daher von späteren Beobachtungen dominiert werden.
+Die fünf Initialbeobachtungen bleiben damit im Profil erhalten. Bei einer Wiedererkennung wird der neue Fünferblock gemeinsam ergänzt, sofern die Update-Ähnlichkeitsschwelle erfüllt ist. Jedes weitere angenommene Update erweitert das Profil, statt die bisherigen Beobachtungen zu ersetzen.
 
 \subsection{Profilbestände und Modellwechsel}
 Personenprofile werden lokal gespeichert und beim Ende einer Videoverarbeitung oder eines Prozesses nicht automatisch gelöscht. Bei Verwendung eines gemeinsamen Profilbestands können die gespeicherten Profile auch in späteren Videos für die Wiedererkennung verwendet werden. Der Trackerzustand gilt dagegen nur für die jeweilige Videoverarbeitung. Die synthetischen Kennungen anonymisieren die gespeicherten Embeddings und Schnappschüsse nicht; sie stellen lediglich eine Pseudonymisierung dar. Eine Löschung erfordert das Entfernen des betreffenden lokalen Profilbestands und der zugehörigen Ausgabedateien.
@@ -141,6 +140,8 @@ Zudem wird ein isolierter Lauf mit neuem Profilbestand ermöglicht, ohne früher
 
 \section{Explorative Erprobung}
 \label{sec:evaluation}
+% TODO: Die zwölf Läufe nach Entfernung des Initialkandidatenabstands neu erzeugen
+% und Ergebniswerte, Laufzeiten sowie Tabellen vor der Abgabe aktualisieren.
 
 Die Erprobung dient dazu, das Verhalten des entwickelten Prototyps anhand konkreter Fälle nachvollziehbar zu dokumentieren. Betrachtet wird, ob die Pipeline Personen nach einer Rückkehr wiedererkennt, wie sie sich mit und ohne Qualitätsschwellen verhält und welche Updates der Ähnlichkeitsschutz in einem ausgewählten Kreuzungsszenario zulässt. Ergänzend wird die Verarbeitungsgeschwindigkeit gemessen. Aufgrund des kleinen Testumfangs werden daraus keine allgemeinen Wirksamkeits- oder Zuverlässigkeitsaussagen abgeleitet.
 
@@ -202,7 +203,7 @@ Eingangsgrö{\ss}e für YOLO & 640 Pixel \\
 ByteTrack: high / low / new / match & 0,25 / 0,10 / 0,25 / 0,80 \\
 ByteTrack: Puffer / Score-Fusion & 30 Frames / aktiv \\
 Updateintervall & 5 Frames \\
-Initialbeobachtungen / Abstand & 5 / 3 Frames \\
+Initialbeobachtungen & 5 \\
 Minimale Cropgrö{\ss}e & $30\times80$ Pixel \\
 Crop-Padding & 0,05 \\
 Überdeckungsgrenze / Abkühlphase & 0,15 / 11 Frames \\
@@ -210,7 +211,7 @@ Crop-Padding & 0,05 \\
 \end{tabularx}
 \end{table}
 
-Updateintervall, Kandidatenabstand, Grenzwert für Überdeckung und Abkühlphase wurden während der technischen Entwicklung als feste Heuristiken gewählt. Sie waren keine Variablen des begrenzten Schwellenrasters in Anhang~\ref{app:pilot-details}. Die Angaben in Frames beziehen sich auf die Eingangssequenz. Bei den Testvideos entsprechen fünf Frames ungefähr 0,17 Sekunden und der ByteTrack-Puffer von 30 Frames ungefähr einer Sekunde.
+Updateintervall, Grenzwert für Überdeckung und Abkühlphase wurden während der technischen Entwicklung als feste Heuristiken gewählt. Sie waren keine Variablen des begrenzten Schwellenrasters in Anhang~\ref{app:pilot-details}. Die Angaben in Frames beziehen sich auf die Eingangssequenz. Bei den Testvideos entsprechen fünf Frames ungefähr 0,17 Sekunden und der ByteTrack-Puffer von 30 Frames ungefähr einer Sekunde.
 
 Tabelle~\ref{tab:variants} zeigt die drei für die Auswertung festgelegten Konfigurationen.
 
@@ -230,7 +231,7 @@ A3: ohne Update-Schutz & 0,75 & 0,55 / 0,65 & aus ($-1$) \\
 \end{tabularx}
 \end{table}
 
-B0 bildet die vollständige OSNet-Referenz. A2 setzt die Gesamtqualitätsschwellen für Initialisierung und Update sowie die drei zusätzlichen Initialgrenzen für allgemeine Schärfe, Schärfe bei Randkontakt und Seitenverhältnis auf null. Mindestgrö{\ss}e, Berechnung und Gewichtung mit $Q$, Überlappungsschutz, Anzahl der Initialbeobachtungen und Kandidatenabstand bleiben unverändert. A3 deaktiviert ausschlie{\ss}lich die Update-Ähnlichkeitsschwelle.
+B0 bildet die vollständige OSNet-Referenz. A2 setzt die Gesamtqualitätsschwellen für Initialisierung und Update sowie die drei zusätzlichen Initialgrenzen für allgemeine Schärfe, Schärfe bei Randkontakt und Seitenverhältnis auf null. Mindestgrö{\ss}e, Berechnung und Gewichtung mit $Q$, Überlappungsschutz und Anzahl der Initialbeobachtungen bleiben unverändert. A3 deaktiviert ausschlie{\ss}lich die Update-Ähnlichkeitsschwelle.
 
 \subsection{Auswertungskriterien}
 \label{sec:metrics}

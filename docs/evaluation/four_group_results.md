@@ -1,5 +1,10 @@
 # Ergebnisse der Vier-Video-Evaluation
 
+> **Überholter Evaluationsstand:** Diese Läufe verwendeten noch einen Abstand
+> von drei Frames zwischen Initialkandidaten. Nach dessen Entfernung müssen die
+> zwölf Läufe neu erzeugt werden; die folgenden Werte dürfen nicht als Ergebnis
+> der aktuellen Implementierung übernommen werden.
+
 Stand: 20. September 2026. Der Lauf `four_groups_20260920_134315_99af698e`
 verarbeitete je ein Video aus G1 bis G4 mit B0, A2 und A3. Alle zwölf isolierten
 Läufe wurden vollständig abgeschlossen. Jede Gruppe und Variante begann mit

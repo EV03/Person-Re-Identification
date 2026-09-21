@@ -110,7 +110,6 @@ def render_pipeline_editor() -> dict[str, object]:
         ("min_crop_width", "Min crop width (px)", 0, "0 deaktiviert die Mindestbreite; leere Crops bleiben ungültig."),
         ("min_crop_height", "Min crop height (px)", 0, "0 deaktiviert die Mindesthöhe; leere Crops bleiben ungültig."),
         ("min_good_frames_before_reid", "Min good frames before first ReID match", 1, "Anzahl akzeptierter Beobachtungen vor der ersten Identitätsentscheidung."),
-        ("initial_candidate_every_n_frames", "Initial candidate every N frames", 1, "Mindestabstand zwischen akzeptierten Initialbeobachtungen eines unbekannten Tracks."),
         ("reid_every_n_frames", "ReID update every N frames", 1, "Update-Intervall bereits zugeordneter Tracks."),
         ("image_size", "Image size", 32, "YOLO-Eingangsgröße; Vielfache von 32 verwenden."),
         ("max_frames", "Max frames (0 = vollständiges Video)", 0, "Begrenzt hochgeladene Videos. Für Webcam-Läufe gilt die separat eingestellte Aufnahmedauer."),

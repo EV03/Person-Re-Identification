@@ -8,16 +8,15 @@ Profilupdates zurückhalten. Ihr empirischer Nutzen ist noch zu evaluieren.
 - Geometrisch ungültige und zu kleine Crops werden verworfen.
 - Schärfe und Größe tragen jeweils 0,25 zum Qualitätswert bei; Helligkeit und
   Seitenverhältnis jeweils 0,15; Randkontakt und Detektionskonfidenz jeweils 0,10.
-- Neue Tracks sammeln standardmäßig fünf Crops mit Qualität mindestens 0,55;
-  zwischen akzeptierten Kandidaten liegen mindestens drei Frames.
+- Neue Tracks sammeln standardmäßig die ersten fünf Crops mit Qualität
+  mindestens 0,55; ein zusätzlicher zeitlicher Abstand besteht nicht.
 - Die normalisierten Kandidaten werden qualitätsgewichtet kombiniert.
 - Der beste Crop dient als Snapshot.
 - Bekannte Tracks werden alle zehn Frames auf ein Profilupdate geprüft.
 - Updates benötigen mindestens Qualität 0,65 und werden qualitätsgewichtet gespeichert.
 
-Bei unbekannten Tracks wird der erste Crop sofort und danach frühestens alle
-drei Frames nach einem weiteren brauchbaren Crop gesucht. Das Zehn-Frame-
-Intervall betrifft die bereits zugeordneten Tracks.
+Bei unbekannten Tracks kann jeder geeignete Frame zum Initialpuffer beitragen.
+Das Zehn-Frame-Intervall betrifft nur die bereits zugeordneten Tracks.
 Crops stammen immer aus dem unveränderten Analysebild. Boxen und Texte werden
 nur auf die Ausgabekopie gezeichnet.
 

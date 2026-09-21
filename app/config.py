@@ -72,7 +72,6 @@ class PipelineSettings:
     image_size: int = 640
     reid_every_n_frames: int = 10
     min_good_frames_before_reid: int = 5
-    initial_candidate_every_n_frames: int = 3
     min_embedding_quality: float = 0.55
     min_initial_blur_score: float = 0.40
     min_border_blur_score: float = 0.45
@@ -111,7 +110,7 @@ class PipelineSettings:
                 raise ValueError(f"{name} must be finite and between 0 and 1.")
         if self.overlap_cooldown_frames < 0:
             raise ValueError("overlap_cooldown_frames must be greater than or equal to zero.")
-        for name in ("reid_every_n_frames", "min_good_frames_before_reid", "initial_candidate_every_n_frames"):
+        for name in ("reid_every_n_frames", "min_good_frames_before_reid"):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name} must be greater than or equal to one.")
 

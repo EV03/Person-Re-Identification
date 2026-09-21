@@ -366,7 +366,6 @@ class PersonReIdPipeline:
         track_to_person: dict[int, str] = {}
         track_to_last_score: dict[int, float | None] = {}
         track_candidates: dict[int, list[TrackEmbeddingCandidate]] = {}
-        track_candidate_last_frame: dict[int, int] = {}
         overlap_cooldown_until: dict[int, int] = {}
         created_persons = 0
         matched_events = 0
@@ -460,20 +459,9 @@ class PersonReIdPipeline:
                     # Do not combine pre-crossing and post-crossing crops if
                     # the tracker changes identity during an overlap.
                     track_candidates.pop(detection.track_id, None)
-                    track_candidate_last_frame.pop(detection.track_id, None)
                     prediction["initial_candidate_count"] = 0
 
                 if person_id is None:
-                    last_candidate_frame = track_candidate_last_frame.get(detection.track_id)
-                    candidate_due = (
-                        last_candidate_frame is None
-                        or frame_index - last_candidate_frame >= self.config.initial_candidate_every_n_frames
-                    )
-                    if not candidate_due and not currently_overlapping and not in_overlap_cooldown:
-                        prediction["state"] = "waiting_for_candidate_interval"
-                        if self.config.draw_debug:
-                            draw_detection(display_frame, detection, person_id, score)
-                        continue
                     should_reid = True
                 else:
                     should_reid = frame_index % self.config.reid_every_n_frames == 0
@@ -566,7 +554,6 @@ class PersonReIdPipeline:
                     if person_id is None:
                         candidates = track_candidates.setdefault(detection.track_id, [])
                         candidates.append(candidate)
-                        track_candidate_last_frame[detection.track_id] = frame_index
                         max_buffer_size = max(self.config.min_good_frames_before_reid * 2, 5)
                         if len(candidates) > max_buffer_size:
                             del candidates[0 : len(candidates) - max_buffer_size]
@@ -660,7 +647,6 @@ class PersonReIdPipeline:
                         track_to_person[detection.track_id] = person_id
                         track_to_last_score[detection.track_id] = score
                         track_candidates[detection.track_id] = []
-                        track_candidate_last_frame.pop(detection.track_id, None)
                         prediction.update(person_id=person_id, match_score=score,
                                           state="created_identity" if match is None else "matched_identity",
                                           decision_frame_index=frame_index, snapshot_frame_index=best_candidate.frame_index)

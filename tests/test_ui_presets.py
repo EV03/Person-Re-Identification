@@ -32,7 +32,6 @@ EDITED_PARAMETERS = {
     "image_size": 736,
     "reid_every_n_frames": 7,
     "min_good_frames_before_reid": 4,
-    "initial_candidate_every_n_frames": 2,
     "min_embedding_quality": .4217,
     "min_initial_blur_score": .4012,
     "min_border_blur_score": .4567,
@@ -164,7 +163,6 @@ class UiPresetTests(unittest.TestCase):
                 ))
                 keyed_widget(app, "selected_preset_id").select("pilot").run()
                 keyed_widget(app, "pipeline_min_good_frames_before_reid").set_value(6)
-                keyed_widget(app, "pipeline_initial_candidate_every_n_frames").set_value(4)
                 keyed_widget(app, "pipeline_reid_every_n_frames").set_value(12)
                 app.run()
                 next(w for w in app.text_input if w.label == "Gespeicherter Name").set_value("Pilot aktualisiert")
@@ -179,7 +177,6 @@ class UiPresetTests(unittest.TestCase):
                 self.assertEqual(saved.name, "Pilot aktualisiert")
                 self.assertEqual(saved.description, "Neue Werte")
                 self.assertEqual(saved.min_good_frames_before_reid, 6)
-                self.assertEqual(saved.initial_candidate_every_n_frames, 4)
                 self.assertEqual(saved.reid_every_n_frames, 12)
                 self.assertEqual(keyed_widget(app, "selected_preset_id").value, "pilot")
                 self.assertFalse(app.warning)

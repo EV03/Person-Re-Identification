@@ -48,7 +48,7 @@ auf beide Mengen verteilen. Auch Pilotversuche mit geänderten Parametern bekomm
 jeweils eine frische Versuchsdatenbank, keine bereits optimierten Profile.
 
 Konstant lassen: YOLOv8n, ByteTrack samt YAML, Detektionskonfidenz 0,35,
-Eingangsgröße 640, fünf Initialbeobachtungen im Abstand von drei Frames,
+Eingangsgröße 640, fünf akzeptierte Initialbeobachtungen,
 Updateintervall fünf Frames,
 Mindestcropgröße 30 × 80 Pixel, Padding 0,05, Qualitätsformel und Gewichtung.
 Das sind Rahmenbedingungen, keine als optimal nachgewiesenen Werte.

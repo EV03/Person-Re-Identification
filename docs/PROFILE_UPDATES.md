@@ -34,8 +34,8 @@ Neue UI-Presets dürfen die Schwellen verändern; die Teilwertkonstanten bleiben
 Für jeden akzeptierten Crop liefert der Encoder einen normalisierten Vektor z.
 Das Gewicht ist `w = max(Q, 0.05)`; der Boden bleibt bei A2 ohne Qualitätsschwellen erhalten.
 Ein unbekannter Track sammelt standardmäßig fünf akzeptierte Beobachtungen.
-Zwischen zwei akzeptierten Initialkandidaten liegen mindestens drei Frames;
-ungeeignete Frames verschieben die nächste Annahme nicht künstlich nach hinten.
+Jeder geeignete Frame kann eine Beobachtung beitragen; einen zusätzlichen
+zeitlichen Mindestabstand gibt es nicht.
 
 ```text
 S = Summe(wi*zi), i=1..5
@@ -54,9 +54,9 @@ Er muss Mindestgrößen und beide Qualitätsschwellen erfüllen, bevor der Encod
 aufgerufen wird. Der Qualitätswert wird einmal berechnet; effektiv gilt die
 höhere Grenze aus `min_embedding_quality` und `min_update_quality`.
 Neue, noch nicht zugeordnete Tracks benötigen nur die Kandidatenqualität. Ihr
-eigener Abstand `initial_candidate_every_n_frames` ist vom Updateintervall
-bekannter Tracks unabhängig. Zusätzlich gelten zwei separat einstellbare
-Schärfegrenzen: `min_initial_blur_score` für jeden Initialkandidaten und die
+Initialpuffer wird aus den ersten fünf akzeptierten Beobachtungen gebildet.
+Zusätzlich gelten zwei separat einstellbare Schärfegrenzen:
+`min_initial_blur_score` für jeden Initialkandidaten und die
 strengere Grenze `min_border_blur_score`, wenn die Bounding-Box einen Bildrand
 berührt. Die Standardwerte sind 0,40 und 0,45. Abgelehnte Bilder füllen den
 Initialpuffer nicht; der unbekannte Track wartet weiter auf bessere Crops.

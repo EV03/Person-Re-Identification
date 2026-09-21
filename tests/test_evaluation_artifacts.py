@@ -30,8 +30,7 @@ def config_for_test():
                           min_good_frames_before_reid=3, min_embedding_quality=0,
                           min_initial_blur_score=0, min_border_blur_score=0,
                           min_initial_aspect_ratio_score=0,
-                          min_update_quality=0, reid_every_n_frames=1,
-                          initial_candidate_every_n_frames=1)
+                          min_update_quality=0, reid_every_n_frames=1)
 
 
 def execute_pipeline(paths, detections, config=None, source="fixture.mp4"):
