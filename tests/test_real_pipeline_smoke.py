@@ -22,10 +22,13 @@ from app.pipeline.reid_encoder import TorchreidOSNetEncoder
 from tests.test_evaluation_scope import paths_for
 
 
+TEST_DEVICE = os.getenv("REID_TEST_DEVICE", "cpu")
+
+
 @unittest.skipUnless(os.getenv("REID_REAL_SMOKE") == "1", "Opt-in: set REID_REAL_SMOKE=1")
 class RealPipelineSmokeTests(unittest.TestCase):
     def test_real_osnet_produces_repeatable_normalized_embeddings(self):
-        encoder = TorchreidOSNetEncoder(device="cpu", checkpoint_path="data/models/osnet_x1_0_msmt17.pth")
+        encoder = TorchreidOSNetEncoder(device=TEST_DEVICE, checkpoint_path="data/models/osnet_x1_0_msmt17.pth")
         crop = np.full((256, 128, 3), 128, np.uint8)
         first, second = encoder.encode(crop), encoder.encode(crop)
         self.assertEqual(first.shape, (512,))
@@ -46,7 +49,7 @@ class RealPipelineSmokeTests(unittest.TestCase):
                 writer.release()
             for mode in builtin_modes().values():
                 with self.subTest(mode=mode.mode_id):
-                    config = replace(mode.to_pipeline_config(), max_frames=0, device="cpu",
+                    config = replace(mode.to_pipeline_config(), max_frames=0, device=TEST_DEVICE,
                                      yolo_model=str(PROJECT_ROOT / "yolov8n.pt"))
                     unit_path = run_unit([source], config, root=base / "experiments", base_paths=paths_for(base))
                     unit = json.loads(unit_path.read_text())

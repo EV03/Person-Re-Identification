@@ -67,7 +67,7 @@ class UiPresetTests(unittest.TestCase):
                 self.assertEqual(len(app.exception), 0)
                 self.assertFalse(any(w.label == "Encoder backend" for w in app.selectbox))
                 for preset, quality, update_similarity in (
-                    ("no_quality_thresholds", 0.0, .82),
+                    ("no_quality_thresholds", 0.0, .75),
                     ("no_update_similarity", .55, -1.0),
                 ):
                     next(w for w in app.selectbox if w.label == "ReID preset").select(preset).run()
@@ -148,7 +148,7 @@ class UiPresetTests(unittest.TestCase):
                 self.assertFalse(app.exception)
                 self.assertTrue(app.error)
                 self.assertFalse(paths.mode_config_path.exists())
-                self.assertEqual(list_modes(paths)["default"].match_threshold, .82)
+                self.assertEqual(list_modes(paths)["default"].match_threshold, .75)
                 self.assertEqual(keyed_widget(app, "pipeline_match_threshold").value, .731)
 
     def test_custom_preset_can_be_updated_with_current_editor_values(self) -> None:

@@ -45,5 +45,5 @@ Ein öffentlich zugängliches Video ist nicht automatisch frei lizenziert: Quell
 Lizenz/Nutzungsberechtigung und Annotation in euren Unterlagen festhalten.
 
 Der technische Modelltest belegt Laden/Dimension/Normalisierung, nicht erfolgreiche
-Wiedererkennung. Die Referenzschwelle 0,82 muss anhand separater Pilotclips beurteilt
+Wiedererkennung. Die Referenzschwelle 0,75 muss anhand separater Pilotclips beurteilt
 werden. Testclips nicht nachträglich zur Wahl besserer Schwellen verwenden.

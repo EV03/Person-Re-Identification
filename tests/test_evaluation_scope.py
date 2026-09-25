@@ -86,7 +86,7 @@ class EvaluationPresetTests(unittest.TestCase):
             paths.ensure()
             rogue = ModeConfig("default", "Replaced", "test", match_threshold=.1)
             paths.mode_config_path.write_text(json.dumps({"modes": [asdict(rogue)]}), encoding="utf-8")
-            self.assertEqual(list_modes(paths)["default"].match_threshold, .82)
+            self.assertEqual(list_modes(paths)["default"].match_threshold, .75)
 
 
 class ReIdStoreScopeTests(unittest.TestCase):

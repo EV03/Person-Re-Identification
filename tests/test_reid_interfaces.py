@@ -56,6 +56,14 @@ def observe(service, vector, person_id="person_000001", **payload):
 
 
 class SettingsContractTests(unittest.TestCase):
+    def test_default_runtime_tuning(self):
+        config = PipelineConfig()
+        self.assertEqual(config.reid_every_n_frames, 5)
+        self.assertEqual(config.match_threshold, .75)
+        self.assertEqual(config.min_border_blur_score, .45)
+        self.assertEqual(config.min_update_similarity, .75)
+        self.assertEqual(config.overlap_cooldown_frames, 11)
+
     def test_settings_are_inherited_not_redeclared(self):
         mode = ModeConfig("pilot", "Pilot", "test")
         config = PipelineConfig()
